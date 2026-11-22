@@ -1,0 +1,67 @@
+name: Free stuff finder UA
+
+on:
+  schedule:
+    # 05,09,13,17 UTC = 07:37, 11:37, 15:37, 19:37 по Киеву зимой (летом на час позже)
+    - cron: "37 5,9,13,17 * * *"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Что запустить"
+        type: choice
+        default: run
+        options:
+          - run        # обычный поиск
+          - test       # прислать тестовое сообщение в Telegram
+          - chat-id    # показать TELEGRAM_CHAT_ID в логе
+          - dry-run    # поиск без отправки (результат в логе)
+
+permissions:
+  contents: write
+
+concurrency:
+  group: finder-ua
+  cancel-in-progress: false
+
+jobs:
+  find:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      - name: Run
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          OLX_PAGES: ${{ vars.OLX_PAGES }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          MIN_SCORE: ${{ vars.MIN_SCORE }}
+          MAX_AI_PER_RUN: ${{ vars.MAX_AI_PER_RUN }}
+        run: |
+          MODE="${{ github.event.inputs.mode || 'run' }}"
+          case "$MODE" in
+            run)     python main.py ;;
+            test)    python main.py --test ;;
+            chat-id) python main.py --chat-id ;;
+            dry-run) python main.py --dry-run ;;
+          esac
+
+      - name: Save seen ads
+        if: always() && (github.event_name == 'schedule' || github.event.inputs.mode == 'run')
+        run: |
+          git config user.name "finder-bot"
+          git config user.email "finder-bot@users.noreply.github.com"
+          git add state/seen.json
+          git diff --cached --quiet || git commit -m "Update seen ads"
+          git pull --rebase -X theirs origin main || true
+          git push
