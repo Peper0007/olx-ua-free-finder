@@ -1,0 +1,15 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Dashboard users. The bot uses the Admin SDK and bypasses these rules.
+    // (Published manually in Firebase console → Firestore → Rules.)
+    function isAllowed() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email.lower() in ['nickolaykolchev@gmail.com', 'vladzavgor@gmail.com'];
+    }
+    match /{document=**} {
+      allow read, write: if isAllowed();
+    }
+  }
+}

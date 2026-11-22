@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Free Finder UA 🇺🇦 — дашборд</title>
+  <link rel="stylesheet" href="style.css?v=12">
+</head>
+<body>
+  <!-- Login -->
+  <section id="login" class="login hidden">
+    <div class="login-card">
+      <h1>Free Finder UA</h1>
+      <p>Бесплатные находки для Etsy/eBay</p>
+      <button id="btn-login" class="btn primary">Войти через Google</button>
+      <p id="login-error" class="error"></p>
+    </div>
+  </section>
+
+  <!-- App -->
+  <div id="app" class="hidden">
+    <header class="topbar">
+      <div class="brand">Free Finder UA 🇺🇦</div>
+      <div id="bot-state" class="pill"></div>
+      <div class="spacer"></div>
+      <button id="btn-run" class="btn primary">▶ Проверить сейчас</button>
+      <span id="user-email" class="muted small"></span>
+      <button id="btn-logout" class="btn ghost small">Выйти</button>
+    </header>
+    <div id="toast" class="toast hidden"></div>
+
+    <nav class="tabs">
+      <button data-tab="finds" class="active">Находки</button>
+      <button data-tab="taken">Забранные</button>
+      <button data-tab="settings">Настройки</button>
+      <button data-tab="filters">Фильтры слов</button>
+      <button data-tab="criteria">Критерии ИИ</button>
+      <button data-tab="runs">Запуски</button>
+      <button data-tab="limits">Лимиты</button>
+    </nav>
+
+    <div id="live" class="live"></div>
+    <div id="lim-strip" class="lim-strip"></div>
+    <main>
+      <!-- FINDS -->
+      <section id="tab-finds" class="tab">
+        <div class="stats" id="stats"></div>
+        <div class="toolbar">
+          <label>Оценка от <input id="f-score" type="range" min="0" max="10" value="6"> <b id="f-score-val">6</b></label>
+          <label>Сайт
+            <select id="f-source"><option value="">все</option><option value="olx">OLX.ua</option></select>
+          </label>
+          <label>Статус
+            <select id="f-status">
+              <option value="">все</option><option value="new">новые</option><option value="interesting">интересно</option>
+              <option value="skip">мимо</option>
+            </select>
+          </label>
+          <label>Площадка
+            <select id="f-platform"><option value="">все</option><option value="etsy">Etsy-винтаж</option><option value="ebay">только eBay</option></select>
+          </label>
+          <input id="f-search" type="search" placeholder="Поиск по названию, городу…">
+          <label>Показать
+            <select id="f-limit"><option>100</option><option selected>300</option><option>1000</option></select>
+          </label>
+        </div>
+        <div id="finds" class="grid"></div>
+        <p id="finds-empty" class="muted hidden">Ничего не найдено по этим фильтрам. Попробуй снизить оценку.</p>
+      </section>
+
+
+      <!-- TAKEN -->
+      <section id="tab-taken" class="tab hidden">
+        <p class="muted small">Сюда попадает всё, что отмечено «забрал». Чтобы вернуть вещь в «Находки», нажми у неё другой статус.</p>
+        <div id="taken" class="grid"></div>
+        <p id="taken-empty" class="muted hidden">Пока ничего не забрано. Нажми «забрал» у находки — она переедет сюда.</p>
+      </section>
+
+      <!-- SETTINGS -->
+      <section id="tab-settings" class="tab hidden">
+        <div class="cards">
+          <div class="card">
+            <h3>Бот</h3>
+            <label class="switch"><input id="s-paused" type="checkbox"> Пауза (расписание не запускается)</label>
+            <label class="switch"><input id="s-telegram" type="checkbox"> Отправлять находки в Telegram</label>
+            <label>Порог оценки для Telegram: <b id="s-min-val"></b>
+              <input id="s-min" type="range" min="0" max="10">
+            </label>
+            <label>Сколько объявлений отдавать ИИ за запуск
+              <input id="s-maxai" type="number" min="1" max="200">
+              <span class="hint">Бесплатный лимит Gemini — 500 запросов в день, запусков 4 в день (+ ручные).</span>
+            </label>
+            <label class="switch"><input id="s-learn" type="checkbox"> Учиться на моих отметках («забрал», «интересно», «мимо»)</label>
+            <span class="hint">ИИ видит ваши последние отметки как примеры и подстраивает оценки под ваш вкус.</span>
+            <label>Со звуком в Telegram — от оценки
+              <input id="s-loud" type="number" min="0" max="11">
+              <span class="hint">Находки ниже этой оценки приходят без звука. 11 = всё без звука.</span>
+            </label>
+            <label>Модель Gemini
+              <input id="s-model" list="models">
+              <datalist id="models">
+                <option value="gemini-3.5-flash-lite"><option value="gemini-3.1-flash-lite"><option value="gemini-flash-lite-latest"><option value="gemini-flash-latest">
+              </datalist>
+              <span class="hint">Лимиты моделей: AI Studio → Rate Limit. Flash Lite — 15 в минуту, 500 в день.</span>
+            </label>
+          </div>
+          <div class="card">
+            <h3>Источники</h3>
+            <label class="switch"><input id="s-olx" type="checkbox"> OLX.ua («Віддам безкоштовно»)</label>
+            <label>Страниц OLX <input id="s-olx-pages" type="number" min="1" max="25"><span class="hint">25 = все ~1000 объявлений</span></label>
+            
+          </div>
+        </div>
+        <button class="btn primary save" data-save="settings">Сохранить настройки</button>
+      </section>
+
+      <!-- FILTERS -->
+      <section id="tab-filters" class="tab hidden">
+        <p class="muted">Объявления, в названии которых есть «мусорное» слово, отбрасываются без ИИ (экономит лимит).
+          Если в названии есть слово-исключение — объявление всё равно идёт к ИИ. По одному слову/регулярному выражению в строке;
+          ищется часть слова, регистр не важен (<code>кот(е|ет|енц)</code>, <code>\bтор\b</code>).</p>
+        <div class="cards">
+          <div class="card"><h3>Мусор (пропускать)</h3><textarea id="w-skip" rows="22"></textarea></div>
+          <div class="card"><h3>Исключения (всегда к ИИ)</h3><textarea id="w-keep" rows="10"></textarea>
+            <h3>Пропускать категории (часть ссылки)</h3>
+            <textarea id="w-url" rows="4"></textarea>
+            <span class="hint">OLX: <code>CID339</code> животные, <code>CID139</code> детские, <code>CID655</code> мода, <code>CID262</code> дом, <code>CID632</code> электроника, <code>CID618</code> книги/музыка/хобби, <code>CID1609</code> антики. Код виден в ссылке объявления.</span>
+            <h3>Проверить название</h3>
+            <input id="w-test" placeholder="например: Зайчета от порцелан">
+            <div id="w-test-res" class="testres"></div>
+          </div>
+        </div>
+        <button class="btn primary save" data-save="filters">Сохранить фильтры</button>
+      </section>
+
+      <!-- CRITERIA -->
+      <section id="tab-criteria" class="tab hidden">
+        <p class="muted">Что считать интересным, а что нет. Этот текст вставляется в задание для Gemini; формат ответа (оценка, цена…) бот добавляет сам.</p>
+        <textarea id="c-text" rows="18" class="wide"></textarea>
+        <div class="row">
+          <button class="btn primary save" data-save="criteria">Сохранить критерии</button>
+          <button id="c-reset" class="btn ghost">Вернуть по умолчанию</button>
+        </div>
+      </section>
+
+      <!-- RUNS -->
+      <section id="tab-runs" class="tab hidden">
+        <div class="card">
+          <h3>Кнопка «Проверить сейчас»</h3>
+          <p class="muted small">Кнопка запускает GitHub Actions. Ей нужен токен GitHub — он хранится в базе дашборда и <b>общий для обоих пользователей</b>, вводить его нужно один раз.
+            Создай его: GitHub → Settings → Developer settings → Personal access tokens → <b>Fine-grained tokens</b> → Generate:
+            Repository access — <i>Only select repositories → olx-ua-free-finder</i>, Permissions → Repository → <i>Actions: Read and write</i>.</p>
+          <div class="row">
+            <input id="gh-token" type="password" placeholder="github_pat_…" autocomplete="off">
+            <button id="gh-save" class="btn">Сохранить</button>
+            <button id="gh-clear" class="btn ghost">Удалить</button>
+            <span id="gh-state" class="muted small"></span>
+          </div>
+          <p class="small"><a href="https://github.com/Peper0007/olx-ua-free-finder/actions" target="_blank" rel="noopener">Открыть GitHub Actions (логи)</a></p>
+        </div>
+        <table class="runs">
+          <thead><tr><th>Начало</th><th>Тип</th><th>Статус</th><th>Собрано</th><th>Новых</th><th>Мусор / дубли</th><th>К ИИ</th><th>Оценено</th><th>Находок</th><th>Очередь</th><th>Время</th><th>Ошибки</th></tr></thead>
+          <tbody id="runs"></tbody>
+        </table>
+      </section>
+
+      <!-- LIMITS -->
+      <section id="tab-limits" class="tab hidden">
+        <div class="cards">
+          <div class="card">
+            <h3>Gemini — запросы ИИ за сутки</h3>
+            <div id="lim-gemini"></div>
+            <label>Дневной лимит модели
+              <input id="l-rpd" type="number" min="1" max="100000">
+              <span class="hint">Flash Lite на бесплатном тарифе — 500 в день. Точная цифра: AI Studio → Rate limit. Сброс — в полночь по тихоокеанскому времени.</span>
+            </label>
+          </div>
+          <div class="card">
+            <h3>GitHub Actions — минуты за месяц</h3>
+            <div id="lim-gh"></div>
+            <label>Минут в месяц
+              <input id="l-ghmin" type="number" min="1" max="100000">
+              <span class="hint">Бесплатный GitHub для приватного репозитория — 2000 мин/мес, каждый запуск округляется вверх до минуты.
+                Точно: <a href="https://github.com/settings/billing/usage" target="_blank" rel="noopener">GitHub → Billing → Usage</a>.</span>
+            </label>
+          </div>
+        </div>
+        <button class="btn primary save" data-save="limits">Сохранить лимиты</button>
+        <p class="muted small">Расчёт по журналу запусков в дашборде. Запросы к Gemini из других мест (AI Studio и т.п.) с тем же ключом тоже тратят лимит, но здесь не видны.</p>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="app.js?v=12"></script>
+</body>
+</html>
