@@ -8,7 +8,13 @@ import { DEFAULTS } from "./defaults.js";
 const REPO = "Peper0007/olx-ua-free-finder";
 const WORKFLOW = "finder.yml";
 const SOURCE_NAMES = { olx: "OLX.ua" };
-const STATUS = { new: "новое", interesting: "интересно", taken: "забрал", skip: "мимо" };
+const STATUS = { new: "новое", interesting: "интересно", taken: "забрал", gone: "уже забрали", spam: "спам", skip: "мимо" };
+// statuses that move a find out of «Находки» into its own tab
+const FOLDERS = {
+  taken: { tab: "taken", title: "Забранные", badge: "✅ Забрал", empty: "Пока ничего не забрано. Нажми «забрал» у находки — она переедет сюда." },
+  gone: { tab: "gone", title: "Забранные другими", badge: "🏃 Уже забрал кто-то другой", empty: "Пусто. Нажми «уже забрали», если вещь успел забрать другой человек." },
+  spam: { tab: "spam", title: "Спам", badge: "🚫 Спам — ненастоящее объявление", empty: "Пусто. Нажми «спам» у ненастоящего объявления — оно переедет сюда." },
+};
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -21,8 +27,9 @@ const db = getFirestore(app);
 
 let settings = structuredClone(DEFAULTS);
 let finds = [];
-let unsubFinds = null, unsubRuns = null, unsubLimits = null, unsubTaken = null;
-let taken = [];
+let unsubFinds = null, unsubRuns = null, unsubLimits = null, unsubTaken = null, unsubHits = null;
+let taken = [];                       // all finds whose status is a folder (taken / gone / spam)
+let latest = [], hitsAll = [];        // latest-N window + every find at/above the threshold
 let todayOnly = false;
 let limitRuns = [];
 let lastRun = null;
@@ -45,7 +52,7 @@ $("#btn-logout").onclick = () => signOut(auth);
 onAuthStateChanged(auth, async (user) => {
   if (!user) {
     $("#login").classList.remove("hidden"); $("#app").classList.add("hidden");
-    unsubFinds?.(); unsubRuns?.(); unsubLimits?.(); unsubTaken?.();
+    unsubFinds?.(); unsubRuns?.(); unsubLimits?.(); unsubTaken?.(); unsubHits?.();
     return;
   }
   $("#user-email").textContent = user.email;
@@ -170,20 +177,34 @@ function testTitle(title) {
 $("#w-test").oninput = () => ($("#w-test-res").innerHTML = testTitle($("#w-test").value.trim()));
 
 // ---------- finds ----------
+function mergeFinds() {
+  const byId = new Map();
+  for (const f of [...hitsAll, ...latest]) byId.set(f.id, f);
+  finds = [...byId.values()].sort((x, y) => ms(y.analyzed_at) - ms(x.analyzed_at));
+  renderFinds();
+}
 function subscribeFinds() {
   unsubFinds?.();
   const q = query(collection(db, "finds"), orderBy("analyzed_at", "desc"), limit(+$("#f-limit").value));
   unsubFinds = onSnapshot(q, (snap) => {
-    finds = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    renderFinds();
+    latest = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    mergeFinds();
   }, (e) => toast("Ошибка загрузки находок: " + e.message, true));
-  // taken items are loaded separately so old ones never fall out of the latest-N window
+  // every real find (score at/above the threshold) is loaded separately, so it never drops out
+  // of the "latest N" window when the bot analyzes lots of new ads
+  unsubHits?.();
+  const minHit = Math.max(1, Math.min(10, +settings.min_score || 6));
+  unsubHits = onSnapshot(query(collection(db, "finds"), where("score", ">=", minHit)), (snap) => {
+    hitsAll = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    mergeFinds();
+  }, (e) => toast("Ошибка загрузки находок: " + e.message, true));
+  // folder items (taken / gone / spam) — loaded separately as well
   unsubTaken?.();
-  unsubTaken = onSnapshot(query(collection(db, "finds"), where("status", "==", "taken")), (snap) => {
+  unsubTaken = onSnapshot(query(collection(db, "finds"), where("status", "in", Object.keys(FOLDERS))), (snap) => {
     taken = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
       .sort((a, b) => ms(b.status_at || b.analyzed_at) - ms(a.status_at || a.analyzed_at));
     renderTaken(); renderFinds();
-  }, (e) => toast("Ошибка загрузки забранных: " + e.message, true));
+  }, (e) => toast("Ошибка загрузки папок: " + e.message, true));
 }
 $("#f-limit").onchange = subscribeFinds;
 ["#f-score", "#f-source", "#f-status", "#f-search", "#f-platform"].forEach((s) => ($(s).oninput = () => {
@@ -207,7 +228,7 @@ function priceLinks(query) {
 function renderFinds() {
   const minS = +$("#f-score").value, src = $("#f-source").value, st = $("#f-status").value, plat = $("#f-platform").value;
   const q = $("#f-search").value.trim().toLowerCase();
-  const list = finds.filter((f) => f.status !== "taken" &&
+  const list = finds.filter((f) => !(f.status in FOLDERS) &&
     (f.score ?? 0) >= minS && (!todayOnly || f.analyzed_at?.toDate?.().toDateString() === new Date().toDateString()) && (!src || f.source === src) && (!plat || (plat === "etsy" ? f.etsy_ok === true : f.etsy_ok === false)) && (!st || (f.status || "new") === st) &&
     (!q || `${f.title} ${f.location} ${f.items}`.toLowerCase().includes(q)));
 
@@ -219,7 +240,7 @@ function renderFinds() {
     tile("hits", hits.length, `находок ≥ ${settings.min_score}`) +
     tile("today", finds.filter((f) => f.analyzed_at?.toDate?.().toDateString() === today).length, "оценено сегодня") +
     tile("interesting", finds.filter((f) => f.status === "interesting").length, "отмечено «интересно»") +
-    tile("taken", taken.length, "забрал → вкладка «Забранные»");
+    tile("taken", taken.filter((f) => f.status === "taken").length, "забрал → вкладка «Забранные»");
 
   $("#finds-empty").classList.toggle("hidden", list.length > 0);
   $("#finds").innerHTML = list.map(cardHTML).join("");
@@ -227,14 +248,14 @@ function renderFinds() {
 
 function cardHTML(f) {
   return `
-    <article class="find ${f.status === "skip" ? "dim" : ""} ${f.status === "taken" ? "taken" : ""}">
+    <article class="find ${f.status === "skip" ? "dim" : ""} ${f.status in FOLDERS ? "folder-" + f.status : ""}">
       <a class="ph" href="${esc(f.url)}" target="_blank" rel="noopener">
         ${f.photos?.[0] ? `<img loading="lazy" referrerpolicy="no-referrer" src="${esc(f.photos[0])}" alt="">` : `<div class="nophoto">нет фото</div>`}
         <span class="score ${scoreClass(f.score)}">${f.score}/10</span>
         ${f.sent ? `<span class="tg" title="Отправлено в Telegram">✈</span>` : ""}
       </a>
       <div class="body">
-        ${f.status === "taken" ? `<p class="taken-badge">✅ Забрал${f.status_at ? " · " + fmtDate(f.status_at) : ""}</p>` : ""}
+        ${f.status in FOLDERS ? `<p class="folder-badge ${f.status}">${FOLDERS[f.status].badge}${f.status_at ? " · " + fmtDate(f.status_at) : ""}</p>` : ""}
         <a class="title" href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.title)}</a>
         ${f.items ? `<p>🔎 ${esc(f.items)}</p>` : ""}
         ${f.why ? `<p class="muted">💡 ${esc(f.why)}</p>` : ""}
@@ -253,11 +274,13 @@ function cardHTML(f) {
 }
 
 function renderTaken() {
-  const n = taken.length;
-  const btn = document.querySelector('.tabs button[data-tab="taken"]');
-  if (btn) btn.textContent = `Забранные${n ? ` (${n})` : ""}`;
-  $("#taken-empty").classList.toggle("hidden", n > 0);
-  $("#taken").innerHTML = taken.map(cardHTML).join("");
+  for (const [st, cfg] of Object.entries(FOLDERS)) {
+    const list = taken.filter((f) => f.status === st);
+    const btn = document.querySelector(`.tabs button[data-tab="${cfg.tab}"]`);
+    if (btn) btn.textContent = `${cfg.title}${list.length ? ` (${list.length})` : ""}`;
+    $(`#${cfg.tab}-empty`).classList.toggle("hidden", list.length > 0);
+    $(`#${cfg.tab}`).innerHTML = list.map(cardHTML).join("");
+  }
 }
 // stat tiles act as quick filters
 function activeTile() {
@@ -294,13 +317,13 @@ async function onCardClick(e) {
   if (!b) return;
   try {
     await updateDoc(doc(db, "finds", b.dataset.id), { status: b.dataset.st, status_at: new Date() });
-    if (b.dataset.st === "taken") toast("✅ Перенесено во вкладку «Забранные».");
-    else if (b.closest("#taken")) toast("Вернул в «Находки».");
+    if (FOLDERS[b.dataset.st]) toast(`Перенесено во вкладку «${FOLDERS[b.dataset.st].title}».`);
+    else if (b.closest(".folder-grid")) toast("Вернул в «Находки».");
   }
   catch (err) { toast("Не удалось сменить статус: " + err.message, true); }
 }
 $("#finds").addEventListener("click", onCardClick);
-$("#taken").addEventListener("click", onCardClick);
+for (const cfg of Object.values(FOLDERS)) $(`#${cfg.tab}`).addEventListener("click", onCardClick);
 
 // ---------- runs ----------
 const STATUS_RUN = { running: "⏳ идёт", ok: "✔ ок", failed: "✖ ошибка" };

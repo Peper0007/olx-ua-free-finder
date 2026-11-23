@@ -135,8 +135,16 @@ table.runs { width: 100%; border-collapse: collapse; margin-top: 16px; backgroun
 .find .plat.etsy { color: #f1641e; } .find .plat.ebay { color: #5ba3ff; }
 .find .copy { margin: 6px 0 2px; }
 
-.find.taken { border-color: var(--good); box-shadow: 0 0 0 1px var(--good) inset; }
-.find.taken .ph::after { content: "✅ забрал"; position: absolute; left: 8px; bottom: 8px; background: var(--good); color: #062; font-weight: 700;
+.find.folder-taken { border-color: var(--good); box-shadow: 0 0 0 1px var(--good) inset; }
+.find.folder-taken .ph::after { content: "✅ забрал"; position: absolute; left: 8px; bottom: 8px; background: var(--good); color: #062; font-weight: 700;
   font-size: 12px; padding: 3px 8px; border-radius: 999px; }
 .taken-badge { color: var(--good); font-weight: 700; margin: 0 0 4px; }
 .status button[data-st="taken"].on { background: var(--good); border-color: var(--good); color: #062; }
+
+.find.folder-gone { border-color: #8a8f98; opacity: .85; }
+.find.folder-spam { border-color: var(--bad); opacity: .75; }
+.folder-badge { font-weight: 700; margin: 0 0 4px; }
+.folder-badge.taken { color: var(--good); } .folder-badge.gone { color: #a9b0bb; } .folder-badge.spam { color: var(--bad); }
+.status button[data-st="gone"].on { background: #6b7280; border-color: #6b7280; color: #fff; }
+.status button[data-st="spam"].on { background: var(--bad); border-color: var(--bad); color: #fff; }
+.status { flex-wrap: wrap; }

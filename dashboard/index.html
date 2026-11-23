@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Free Finder UA 🇺🇦 — дашборд</title>
-  <link rel="stylesheet" href="style.css?v=13">
+  <link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
   <!-- Login -->
@@ -32,6 +32,8 @@
     <nav class="tabs">
       <button data-tab="finds" class="active">Находки</button>
       <button data-tab="taken">Забранные</button>
+      <button data-tab="gone">Забранные другими</button>
+      <button data-tab="spam">Спам</button>
       <button data-tab="settings">Настройки</button>
       <button data-tab="filters">Фильтры слов</button>
       <button data-tab="criteria">Критерии ИИ</button>
@@ -72,8 +74,22 @@
       <!-- TAKEN -->
       <section id="tab-taken" class="tab hidden">
         <p class="muted small">Сюда попадает всё, что отмечено «забрал». Чтобы вернуть вещь в «Находки», нажми у неё другой статус.</p>
-        <div id="taken" class="grid"></div>
-        <p id="taken-empty" class="muted hidden">Пока ничего не забрано. Нажми «забрал» у находки — она переедет сюда.</p>
+        <div id="taken" class="grid folder-grid"></div>
+        <p id="taken-empty" class="muted hidden"></p>
+      </section>
+
+      <!-- GONE -->
+      <section id="tab-gone" class="tab hidden">
+        <p class="muted small">Вещи, которые успел забрать кто-то другой. ИИ считает их удачными находками (учится на них), просто вы не успели.</p>
+        <div id="gone" class="grid folder-grid"></div>
+        <p id="gone-empty" class="muted hidden"></p>
+      </section>
+
+      <!-- SPAM -->
+      <section id="tab-spam" class="tab hidden">
+        <p class="muted small">Ненастоящие объявления (обман, приманка, «бесплатно», а на деле продажа). Помечается только само объявление, не вся категория.</p>
+        <div id="spam" class="grid folder-grid"></div>
+        <p id="spam-empty" class="muted hidden"></p>
       </section>
 
       <!-- SETTINGS -->
@@ -191,6 +207,6 @@
     </main>
   </div>
 
-  <script type="module" src="app.js?v=13"></script>
+  <script type="module" src="app.js?v=14"></script>
 </body>
 </html>
