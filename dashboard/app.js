@@ -453,7 +453,9 @@ function renderLimits() {
   const used = today.reduce((a, r) => a + (r.status === "running" ? perRun : (r.ai_calls ?? r.analyzed ?? 0)), 0);
   // If Gemini itself said the daily quota is gone, trust that over our own count
   // (requests made outside the dashboard's log — older runs, AI Studio — also count).
-  const exhausted = today.some((r) => (r.errors || []).some((x) => /лимит Gemini/i.test(x)));
+  // only the latest finished run counts: a new API key (or a fresh quota) clears the warning
+  const lastDone = today.find((r) => r.status !== "running");
+  const exhausted = !!lastDone && (lastDone.errors || []).some((x) => /лимит Gemini/i.test(x));
   const left = exhausted ? 0 : Math.max(0, rpd - used);
   const sched = scheduledBetween(now, nextReset);
   const reserve = sched * perRun;
