@@ -157,7 +157,7 @@ def load_feedback_examples(max_each: int = 12) -> str:
         return ""
     try:
         docs = [d.to_dict() for d in db.collection("finds")
-                .where("status", "in", ["taken", "interesting", "skip"]).limit(300).stream()]
+                .where("status", "in", ["taken", "interesting", "gone", "skip"]).limit(300).stream()]
     except Exception as exc:
         log.warning("Firestore feedback load failed: %s", exc)
         return ""
@@ -170,7 +170,7 @@ def load_feedback_examples(max_each: int = 12) -> str:
             return 0
 
     docs.sort(key=when, reverse=True)
-    good = [d for d in docs if d.get("status") in ("taken", "interesting")][:max_each]
+    good = [d for d in docs if d.get("status") in ("taken", "interesting", "gone")][:max_each]
     bad = [d for d in docs if d.get("status") == "skip"][:max_each]
     if not good and not bad:
         return ""
@@ -181,7 +181,7 @@ def load_feedback_examples(max_each: int = 12) -> str:
 
     out = ["\n\nОПЫТ ВЛАДЕЛЬЦА — его собственные отметки в дашборде. Подстрой оценки под его вкус:"]
     if good:
-        out.append("Это он ЗАБРАЛ или отметил «интересно» (похожему ставь оценку выше):")
+        out.append("Это он ЗАБРАЛ, отметил «интересно» или не успел забрать (похожему ставь оценку выше):")
         out += [line(d) for d in good]
     if bad:
         out.append("Это он отметил «мимо» (похожему ставь оценку ниже, даже если вещь в целом продаётся):")
