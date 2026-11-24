@@ -114,7 +114,7 @@ function fillForms() {
   setVal("#w-keep", (s.keep_words || []).join("\n"));
   setVal("#w-url", (s.skip_url_parts || []).join("\n"));
   setVal("#c-text", s.criteria);
-  setVal("#l-rpd", s.gemini_rpd ?? 500);
+  setVal("#l-rpd", s.gemini_rpd ?? 500); setVal("#l-ghmin", s.gh_minutes ?? 2000);
   setVal("#f-score", s.min_score); if ($("#f-score-val")) $("#f-score-val").textContent = s.min_score;
   renderBotState();
 }
@@ -144,7 +144,7 @@ async function save(part) {
       },
     };
   } else if (part === "limits") {
-    patch = { gemini_rpd: Math.max(1, +$("#l-rpd").value || 500) };
+    patch = { gemini_rpd: Math.max(1, +$("#l-rpd").value || 500), gh_minutes: Math.max(1, +$("#l-ghmin").value || 2000) };
   } else if (part === "filters") {
     patch = { skip_words: lines(getVal("#w-skip")), keep_words: lines(getVal("#w-keep")), skip_url_parts: lines(getVal("#w-url")) };
   } else {
@@ -498,12 +498,37 @@ function renderLimits() {
       <span>Запусков с начала суток</span><span>${today.length}</span>
     </div>`;
 
+  // ---- GitHub Actions minutes ----
+  const ghLimit = +settings.gh_minutes || 2000;
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+  const month = finished.filter((r) => ms(r.started_at) >= +monthStart);
+  const usedMin = month.reduce((a, r) => a + runMinutes(r), 0);
+  const durs = finished.slice(0, 5).map(runMinutes).filter(Boolean);
+  const avgMin = durs.length ? Math.ceil(durs.reduce((a, b) => a + b, 0) / durs.length) : 10;
+  const schedMonth = scheduledBetween(now, monthEnd);
+  const projected = schedMonth * avgMin;
+  const ghLeft = ghLimit - usedMin;
+  const ghManual = Math.max(0, Math.floor((ghLeft - projected) / avgMin));
+  const over = usedMin + projected - ghLimit;
+  $("#lim-gh").innerHTML = `
+    <div class="lim-big">${usedMin} / ${ghLimit} мин</div>${bar(usedMin, ghLimit)}
+    <div class="lim-answer">Можно запустить вручную ещё <b>${ghManual}</b> раз(а) до конца месяца
+      ${over > 0 ? `<br><span class="small err">При текущей длительности запусков расписание до конца месяца не уложится: перерасход ~${over} мин. Запуски станут короче, когда разберётся очередь; иначе уменьши «объявлений за запуск» или страницы OLX.</span>` : ""}</div>
+    <div class="lim-rows">
+      <span>Осталось минут</span><span>${Math.max(0, ghLeft)}</span>
+      <span>Средний запуск (последние 5)</span><span>${avgMin} мин</span>
+      <span>Запусков по расписанию до конца месяца</span><span>${schedMonth}</span>
+      <span>Они займут ~</span><span>${projected} мин</span>
+      <span>Сброс</span><span>${monthEnd.toLocaleDateString("ru-RU")}</span>
+    </div>
+    <p class="small muted">Не учтены запуски до подключения дашборда, деплои дашборда (~1 мин каждый) и тестовые режимы.</p>`;
   const pc = (a, b) => (a / b > 0.9 ? "bad" : a / b > 0.7 ? "mid" : "");
   const strip = $("#lim-strip");
   if (strip) strip.innerHTML = `
     <span class="${exhausted ? "bad" : pc(used, rpd)}">ИИ (Gemini): <b>${exhausted ? "лимит исчерпан" : `${used} / ${rpd}`}</b> за сутки, осталось ${left}, сброс ${nextReset.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</span>
-    <span>Ручных запусков можно: <b>${manual}</b> сегодня</span>
-    <span class="muted">GitHub: без лимита (публичный репозиторий)</span>
+    <span class="${pc(usedMin, ghLimit)}">GitHub: <b>${usedMin} / ${ghLimit}</b> мин за месяц</span>
+    <span>Ручных запусков можно: <b>${Math.min(manual, ghManual)}</b> сегодня</span>
     <a href="#" data-goto="limits">подробнее</a>`;
 }
 
