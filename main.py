@@ -18,7 +18,7 @@ import sys
 import time
 
 from finder import ai, common, prefilter, remote, state, telegram
-from finder.dedup import fingerprint
+from finder.dedup import fingerprint, title_fingerprint
 from finder.common import Ad, log
 from finder.sources import alo, bazar, olx
 
@@ -98,7 +98,9 @@ def run(dry_run: bool) -> int:
         log.info("Collected %s ads, %s new%s", len(ads), len(new), " (first run)" if first_run else "")
 
         candidates: list[Ad] = []
-        junk = dups = 0
+        junk = dups = blocked = 0
+        # items the owner marked spam / «уже забрали» / «забрал» are never sent again, even if reposted
+        blocked_keys, blocked_fps, spam_titles = remote.load_blocked()
         batch_fps: set[str] = set()
         for ad in new:
             if prefilter.is_junk(ad):
@@ -106,6 +108,10 @@ def run(dry_run: bool) -> int:
                 junk += 1
                 continue
             fp = fingerprint(ad)
+            if ad.key in blocked_keys or fp in blocked_fps or title_fingerprint(ad.title) in spam_titles:
+                seen[ad.key] = now
+                blocked += 1
+                continue
             if fp in seen or fp in batch_fps:
                 # same item already analyzed (reposted with a new id or listed on another site)
                 seen[ad.key] = now
@@ -113,8 +119,9 @@ def run(dry_run: bool) -> int:
                 continue
             batch_fps.add(fp)
             candidates.append(ad)
-        log.info("%s candidates after keyword pre-filter (%s junk, %s duplicates)", len(candidates), junk, dups)
-        stats.update(counts=counts, collected=len(ads), new=len(new), junk=junk, duplicates=dups,
+        log.info("%s candidates after keyword pre-filter (%s junk, %s duplicates, %s blocked by owner)",
+                 len(candidates), junk, dups, blocked)
+        stats.update(counts=counts, collected=len(ads), new=len(new), junk=junk, duplicates=dups + blocked, blocked=blocked,
                      candidates=len(candidates), failed_sources=failed)
 
         # Free stuff goes fast: analyze the freshest ads first (OLX has exact time, Bazar says "днес").
@@ -129,7 +136,13 @@ def run(dry_run: bool) -> int:
         todo = candidates[:max_ai]
         report(force=True, phase="filter", collected=len(ads), new=len(new), junk=junk, duplicates=dups,
                candidates=len(candidates), todo=len(todo))
+        # GitHub kills the job at 30 min; stop analyzing in time to save results and seen.json cleanly
+        budget = float(os.environ.get("RUN_BUDGET_MIN", "24")) * 60
         for i, ad in enumerate(todo, 1):
+            if time.time() - now > budget:
+                log.warning("Time budget reached after %s ads; the rest waits for the next run", i - 1)
+                stats["errors"].append(f"Время запуска вышло — оценено {i - 1} из {len(todo)}, остальное в следующий раз")
+                break
             report(phase="analyze", done=i - 1, todo=len(todo), source=ad.source, title=ad.title[:120],
                    url=ad.url, hits=sent)
             if ad.source == "bazar" and ad.needs_details:
