@@ -473,7 +473,8 @@ function renderLimits() {
   const backlogOn = (last?.backlog ?? 1) > 0;
   const perRun = Math.max(1, backlogOn ? maxAi : Math.min(maxAi, avgCalls || 1));
   const today = limitRuns.filter((r) => ms(r.started_at) >= +reset);
-  const used = today.reduce((a, r) => a + (r.status === "running" ? perRun : (r.ai_calls ?? r.analyzed ?? 0)), 0);
+  const stale = (r) => r.status === "running" && ms(r.started_at) < Date.now() - 35 * 60000;
+  const used = today.reduce((a, r) => a + (stale(r) ? (r.progress?.done ?? perRun) : r.status === "running" ? perRun : (r.ai_calls ?? r.analyzed ?? 0)), 0);
   // If Gemini itself said the daily quota is gone, trust that over our own count
   // (requests made outside the dashboard's log — older runs, AI Studio — also count).
   // only the latest finished run counts: a new API key (or a fresh quota) clears the warning
@@ -556,6 +557,11 @@ function renderLive() {
   const nextTxt = settings.paused ? "расписание на паузе" : next ? "следующая по расписанию: " + next.toLocaleString("ru-RU", { weekday: "short", hour: "2-digit", minute: "2-digit" }) : "";
   if (!r) { el.className = "live"; el.innerHTML = `<span class="dot"></span> Проверок ещё не было · ${nextTxt}`; return; }
 
+  if (r.status === "running" && ms(r.started_at) < Date.now() - 35 * 60000) {
+    el.className = "live fail";
+    el.innerHTML = `<span class="dot"></span> Последняя проверка прервана (GitHub остановил её через 30 мин) · начата ${ago(r.started_at)}${r.progress?.done ? ` · успела оценить ${r.progress.done} из ${r.progress.todo}` : ""} · ${nextTxt}`;
+    return;
+  }
   if (r.status === "running") {
     const p = r.progress || {};
     // with live progress: silent for 15 min = stuck; without it (older bot code): past the 30-min job timeout
