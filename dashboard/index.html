@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Free Finder UA 🇺🇦 — дашборд</title>
-  <link rel="stylesheet" href="style.css?v=15">
+  <link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
   <!-- Login -->
@@ -191,15 +191,6 @@
               <span class="hint">Flash Lite на бесплатном тарифе — 500 в день. Точная цифра: AI Studio → Rate limit. Сброс — в полночь по тихоокеанскому времени.</span>
             </label>
           </div>
-          <div class="card">
-            <h3>GitHub Actions — минуты за месяц</h3>
-            <div id="lim-gh"></div>
-            <label>Минут в месяц
-              <input id="l-ghmin" type="number" min="1" max="100000">
-              <span class="hint">Бесплатный GitHub для приватного репозитория — 2000 мин/мес, каждый запуск округляется вверх до минуты.
-                Точно: <a href="https://github.com/settings/billing/usage" target="_blank" rel="noopener">GitHub → Billing → Usage</a>.</span>
-            </label>
-          </div>
         </div>
         <button class="btn primary save" data-save="limits">Сохранить лимиты</button>
         <p class="muted small">Расчёт по журналу запусков в дашборде. Запросы к Gemini из других мест (AI Studio и т.п.) с тем же ключом тоже тратят лимит, но здесь не видны.</p>
@@ -207,6 +198,6 @@
     </main>
   </div>
 
-  <script type="module" src="app.js?v=15"></script>
+  <script type="module" src="app.js?v=16"></script>
 </body>
 </html>
