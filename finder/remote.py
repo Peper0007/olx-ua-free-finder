@@ -130,6 +130,17 @@ def start_run(trigger: str) -> str | None:
     db = _client()
     if db is None:
         return None
+    # A run killed by GitHub's timeout never reports back: close such leftovers so the dashboard
+    # doesn't show "идёт проверка" forever.
+    try:
+        cutoff = datetime.now(timezone.utc).timestamp() - 40 * 60
+        for d in db.collection("runs").where("status", "==", "running").stream():
+            started = d.to_dict().get("started_at")
+            if started is not None and started.timestamp() < cutoff:
+                d.reference.set({"status": "failed", "finished_at": _now(),
+                                 "errors": ["Прервана: GitHub остановил запуск по таймауту (30 мин)"]}, merge=True)
+    except Exception as exc:
+        log.warning("Firestore stale-run cleanup failed: %s", exc)
     try:
         ref = db.collection("runs").document()
         ref.set({"started_at": _now(), "trigger": trigger, "status": "running"})
@@ -187,6 +198,35 @@ def load_feedback_examples(max_each: int = 12) -> str:
         out.append("Это он отметил «мимо» (похожему ставь оценку ниже, даже если вещь в целом продаётся):")
         out += [line(d) for d in bad]
     return "\n".join(out) + "\n"
+
+
+# Statuses set in the dashboard after which the item must never be sent again (even if reposted).
+BLOCK_STATUSES = ["spam", "gone", "taken"]
+
+
+def load_blocked() -> tuple[set[str], set[str], set[str]]:
+    """Keys, fingerprints and (for spam) title-only fingerprints of finds the owner marked
+    «спам», «уже забрали» or «забрал» in the dashboard."""
+    keys: set[str] = set(); fps: set[str] = set(); spam_titles: set[str] = set()
+    db = _client()
+    if db is None:
+        return keys, fps, spam_titles
+    from finder.dedup import title_fingerprint
+    try:
+        for d in db.collection("finds").where("status", "in", BLOCK_STATUSES).stream():
+            f = d.to_dict()
+            if f.get("key"):
+                keys.add(f["key"])
+            fake = Ad(f.get("source", ""), "", f.get("title", ""), "", location=f.get("location", ""))
+            fps.add(f.get("fingerprint") or fingerprint(fake))
+            fps.add(fingerprint(fake))
+            if f.get("status") == "spam":
+                tfp = title_fingerprint(f.get("title", ""))
+                if tfp:
+                    spam_titles.add(tfp)
+    except Exception as exc:
+        log.warning("Firestore blocked-list load failed: %s", exc)
+    return keys, fps, spam_titles
 
 
 _last_progress = 0.0

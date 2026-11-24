@@ -29,6 +29,12 @@ def _city(location: str) -> str:
     return re.sub(r"[^\w]+", "", city.split(",")[0])
 
 
+def title_fingerprint(title: str) -> str:
+    """Title only, city ignored — spam is often reposted with the same text in other cities."""
+    norm = _norm(title)
+    return "tfp:" + hashlib.sha1(norm.encode("utf-8")).hexdigest()[:16] if norm else ""
+
+
 def fingerprint(ad: Ad) -> str:
     base = _norm(ad.title) + "|" + _city(ad.location)
     return "fp:" + hashlib.sha1(base.encode("utf-8")).hexdigest()[:16]
