@@ -46,6 +46,7 @@ DEFAULTS: dict = {
         "nearby": [],
         "only_near": False,     # True = skip ads that are neither near home nor shippable
     },
+    "night": {"enabled": True, "from": 1, "to": 6},  # no scheduled runs between these local hours
     "digest": {"enabled": True, "hour": 21},  # evening summary in Telegram (Kyiv time)
     "sources": {
         "olx": {"enabled": True, "pages": 25},
