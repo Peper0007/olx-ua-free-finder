@@ -36,7 +36,7 @@ DEFAULTS: dict = {
     "learn_from_marks": True,   # feed the owner's dashboard marks to the AI as examples
     "loud_score": 6,            # Telegram: score >= this arrives with sound, lower ones silently
     "model": "gemini-3.5-flash-lite",
-    "fallback_models": ["gemini-3.1-flash-lite", "gemini-2.5-flash-lite"],  # tried when the main one is overloaded
+    "fallback_models": ["gemini-3.1-flash-lite", "gemini-flash-latest"],  # tried when the main one is overloaded
     "criteria": DEFAULT_CRITERIA,
     "ai_batch": 4,              # ads per Gemini request (the daily quota counts requests, not ads)
     "gemini_rpd": 500,          # Gemini daily request limit; the bot spreads it over the day's runs
