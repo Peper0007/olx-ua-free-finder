@@ -63,7 +63,7 @@ def get(url: str, *, pause: float = 2.0, retries: int = 2, **kwargs) -> requests
 
 @dataclass
 class Ad:
-    source: str            # "olx" | "bazar" | "alo"
+    source: str            # "olx"
     ad_id: str             # id within the source
     title: str
     url: str
@@ -71,14 +71,35 @@ class Ad:
     description: str = ""
     photos: list[str] = field(default_factory=list)
     posted: str = ""       # human-readable date/time if known
-    posted_at: float = 0.0
-    category_id: str = ""  # OLX subcategory id (used by the category filter)  # unix time of publication if known (OLX), 0 = unknown
+    posted_at: float = 0.0  # unix time of publication if known (OLX), 0 = unknown
     delivery: str = ""     # e.g. "купувача, лично предаване"
     needs_details: bool = False  # True if description/photos should be fetched from the ad page
+    seller: str = ""       # seller id on the site, if known (used to bundle many ads of one seller into a lot)
+    members: list = field(default_factory=list)  # a lot: the separate ads it was built from
+    price: float = 0.0     # asking price in UAH; 0 = free («віддам безкоштовно»)
+    category_id: str = ""  # OLX subcategory id (used by the category filter)
 
     @property
     def key(self) -> str:
         return f"{self.source}:{self.ad_id}"
+
+
+def stop_when_seen(pages_ads, seen: set | dict | None, label: str, quiet_pages: int = 2):
+    """Listings are sorted newest/bumped first. Once `quiet_pages` pages in a row contain nothing
+    we haven't processed yet, everything below is old too — stop paging (saves minutes per run).
+    `pages_ads` yields the ads of each page; returns all collected ads."""
+    out: list = []
+    quiet = 0
+    for ads in pages_ads:
+        out.extend(ads)
+        if seen is None:
+            continue
+        fresh = [a for a in ads if a.key not in seen]
+        quiet = quiet + 1 if not fresh else 0
+        if quiet >= quiet_pages:
+            log.info("%s: %s pages in a row without new ads — stop paging", label, quiet)
+            break
+    return out
 
 
 def clean(text: str | None) -> str:

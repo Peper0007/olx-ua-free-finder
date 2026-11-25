@@ -47,6 +47,10 @@ _KEEP_RE = re.compile("|".join(KEEP_WORDS), re.I)
 SKIP_URL_PARTS = ["cat:4005", "cat:4006", "cat:69", "cat:70", "cat:71", "cat:540", "cat:541", "cat:542", "cat:544", "cat:545"]
 _SKIP_URL = list(SKIP_URL_PARTS)
 
+# «Охота»: the owner's own words (brands, models, makers). Such ads are never dropped as junk,
+# go to the AI first and always reach Telegram with sound, whatever the score. Empty by default.
+_HUNT: list[tuple[str, re.Pattern]] = []
+
 
 def _compile(words: list[str]) -> re.Pattern | None:
     good = []
@@ -63,9 +67,17 @@ def _compile(words: list[str]) -> re.Pattern | None:
 
 
 def configure(skip_words: list[str] | None = None, keep_words: list[str] | None = None,
-              skip_url_parts: list[str] | None = None) -> None:
+              skip_url_parts: list[str] | None = None, hunt_words: list[str] | None = None) -> None:
     """Replace the built-in lists (used when the dashboard provides its own)."""
-    global _SKIP_RE, _KEEP_RE, _SKIP_URL
+    global _SKIP_RE, _KEEP_RE, _SKIP_URL, _HUNT
+    if hunt_words is not None:
+        _HUNT = []
+        for w in hunt_words:
+            w = (w or "").strip()
+            if w:
+                rx = _compile([w])
+                if rx is not None:
+                    _HUNT.append((w, rx))
     if skip_url_parts is not None:
         _SKIP_URL = [p.strip() for p in skip_url_parts if p and p.strip()]
     if skip_words is not None:
@@ -74,7 +86,18 @@ def configure(skip_words: list[str] | None = None, keep_words: list[str] | None 
         _KEEP_RE = _compile(keep_words)
 
 
+def hunt_match(ad: Ad) -> str:
+    """The first «охота» word found in the title or description ('' = none)."""
+    text = f"{ad.title or ''} {ad.description or ''}"
+    for word, rx in _HUNT:
+        if rx.search(text):
+            return word
+    return ""
+
+
 def is_junk(ad: Ad) -> bool:
+    if hunt_match(ad):
+        return False
     url = (ad.url or "") + (f" cat:{ad.category_id} " if ad.category_id else "")
     if any(part and (part in url if not part.startswith("cat:") else f" {part} " in url) for part in _SKIP_URL):
         return True

@@ -64,6 +64,10 @@ def seller_message(ad: Ad) -> str:
 def format_ad(ad: Ad, verdict: dict | None) -> str:
     e = html.escape
     lines = [f"<b>{e(ad.title)}</b>"]
+    if verdict and verdict.get("hunt"):
+        lines.insert(0, f"🎯 <b>Охота: «{e(str(verdict['hunt']))}»</b>")
+    if ad.price:
+        lines.append(f"💶 Платное: <b>{ad.price:g} грн</b> на {SOURCE_NAMES.get(ad.source, ad.source)}")
     if verdict:
         age = age_text(ad)
         lines.append(f"⭐ {verdict.get('score', '?')}/10" + (f" · 🕐 опубликовано {e(age)}" if age else ""))
@@ -72,6 +76,8 @@ def format_ad(ad: Ad, verdict: dict | None) -> str:
             lines.append(("🏷 Etsy ✅ винтаж/handmade" if verdict["etsy_ok"] else "🏷 только eBay — для Etsy не подходит") + era)
         if verdict.get("price_etsy") or verdict.get("price_ebay"):
             lines.append(f"💰 Etsy: {e(str(verdict.get('price_etsy', '—')))} · eBay: {e(str(verdict.get('price_ebay', '—')))}")
+            if verdict.get("price_conf") and verdict["price_conf"] != "высокая":
+                lines[-1] += f" <i>(оценка ИИ, уверенность {e(verdict['price_conf'])})</i>"
         elif verdict.get("price"):
             lines.append(f"💰 {e(str(verdict['price']))}")
         if verdict.get("items"):
@@ -82,6 +88,13 @@ def format_ad(ad: Ad, verdict: dict | None) -> str:
             lines.append(f"🚚 {e(str(verdict['pickup']))}")
         if verdict.get("query_en"):
             lines.append(f"🔍 Проверить цену: {price_links(str(verdict['query_en']))}")
+    if ad.members:
+        lines.append(f"📦 <b>Лот: {len(ad.members)} объявлений одного продавца</b>"
+                     + (f" · всего {ad.price:g} грн" if ad.price else ""))
+        for m in ad.members[:8]:
+            lines.append(f'• <a href="{e(m.url)}">{e(m.title[:60])}</a>' + (f" — {m.price:g} грн" if m.price else ""))
+        if len(ad.members) > 8:
+            lines.append(f"… и ещё {len(ad.members) - 8}")
     meta = " · ".join(x for x in (ad.location, ad.posted, f"доставка: {ad.delivery}" if ad.delivery else "") if x)
     if meta:
         lines.append(f"📍 {e(meta)}")
@@ -94,15 +107,23 @@ def format_ad(ad: Ad, verdict: dict | None) -> str:
 def send_ad(ad: Ad, verdict: dict | None, silent: bool = False) -> None:
     caption = format_ad(ad, verdict)
     chat_id = os.environ["TELEGRAM_CHAT_ID"]
+    extra = {}
+    try:
+        from . import remote, tgbuttons
+        if remote.enabled():  # status buttons only make sense with the dashboard database
+            extra["reply_markup"] = tgbuttons.keyboard(tgbuttons.doc_id(ad.key))
+    except Exception as exc:
+        log.debug("no buttons: %s", exc)
     visible = html.unescape(re.sub(r"<[^>]+>", "", caption))  # Telegram's 1024 limit counts text, not markup
     if ad.photos and len(visible) <= 1024:
         try:
             _call("sendPhoto", chat_id=chat_id, photo=ad.photos[0], caption=caption, parse_mode="HTML",
-                  disable_notification=silent)
+                  disable_notification=silent, **extra)
             return
         except Exception as exc:  # e.g. Telegram can't fetch the image URL
             log.warning("sendPhoto failed (%s), falling back to text", exc)
-    send_text(caption, silent=silent)
+    _call("sendMessage", chat_id=chat_id, text=caption, parse_mode="HTML", disable_web_page_preview=True,
+          disable_notification=silent, **extra)
 
 
 def print_chat_ids() -> None:
@@ -119,6 +140,4 @@ def print_chat_ids() -> None:
     if not found:
         print("Нет сообщений. Напиши боту (или опубликуй пост в канале, где бот — админ) и запусти ещё раз.")
     for cid, name in found.items():
-        # digits spelled as letters too (0→a … 9→j): GitHub log masking can't hide them
-        spelled = str(cid).translate(str.maketrans("0123456789", "abcdefghij"))
-        print(f"TELEGRAM_CHAT_ID = {cid}   ({name})   [{spelled}]")
+        print(f"TELEGRAM_CHAT_ID = {cid}   ({name})")

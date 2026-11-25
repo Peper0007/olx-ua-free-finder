@@ -31,21 +31,35 @@ DEFAULTS: dict = {
     "paused": False,
     "telegram_enabled": True,
     "min_score": 6,
+    "paid_min_score": 6,        # Telegram threshold for cheap paid ads (they score high often; avoid flooding the channel)
     "max_ai_per_run": 100,
     "learn_from_marks": True,   # feed the owner's dashboard marks to the AI as examples
-    "loud_score": 8,            # Telegram: score >= this arrives with sound, lower ones silently
+    "loud_score": 6,            # Telegram: score >= this arrives with sound, lower ones silently
     "model": "gemini-3.5-flash-lite",
+    "fallback_models": ["gemini-3.1-flash-lite", "gemini-2.5-flash-lite"],  # tried when the main one is overloaded
     "criteria": DEFAULT_CRITERIA,
+    "ai_batch": 4,              # ads per Gemini request (the daily quota counts requests, not ads)
+    "gemini_rpd": 500,          # Gemini daily request limit; the bot spreads it over the day's runs
+    "check_alive": True,        # re-check open finds and move removed ads to «Забранные другими»
+    "home": {                   # pickup area: empty city = whole Ukraine by parcel (Nova Poshta / Ukrposhta / OLX Delivery)
+        "city": "",
+        "nearby": [],
+        "only_near": False,     # True = skip ads that are neither near home nor shippable
+    },
+    "digest": {"enabled": True, "hour": 21},  # evening summary in Telegram (Kyiv time)
     "sources": {
         "olx": {"enabled": True, "pages": 25},
-        "bazar": {"enabled": False, "pages": 0},
-        "alo": {"enabled": False, "queries": []},
+        "olx_cheap": {"enabled": True, "max_uah": 200, "pages": 3,
+                      "categories": ["hobbi-otdyh-i-sport/antikvariat-kollektsii"]},
     },
+    "uah_per_eur": 48,     # only for the profit table in the dashboard (purchase price of paid ads in EUR)
+    "hunt_words": [],      # «охота»: always to Telegram with sound (dashboard → «Фильтры слов»)
     "skip_words": None,  # None → built-in list from prefilter.py
     "keep_words": None,
     "skip_url_parts": None,  # None → built-in list (OLX animals/kids categories)
 }
 
+UAH_PER_EUR = 48.0  # overwritten from settings in load_settings()
 _db = None
 
 
@@ -87,13 +101,14 @@ def _merge(base: dict, override: dict) -> dict:
 
 def load_settings() -> dict:
     """Defaults ← env vars ← Firestore config/settings (dashboard wins)."""
+    global UAH_PER_EUR
     s = json.loads(json.dumps(DEFAULTS))
     env_map = {"MIN_SCORE": "min_score", "MAX_AI_PER_RUN": "max_ai_per_run", "GEMINI_MODEL": "model"}
     for env, key in env_map.items():
         val = os.environ.get(env)
         if val:
             s[key] = int(val) if key != "model" else val
-    for env, src in (("OLX_PAGES", "olx"), ("BAZAR_PAGES", "bazar")):
+    for env, src in (("OLX_PAGES", "olx"),):
         if os.environ.get(env, "").isdigit():
             s["sources"][src]["pages"] = int(os.environ[env])
 
@@ -119,6 +134,10 @@ def load_settings() -> dict:
     if s.get("skip_url_parts") is None:
         from .prefilter import SKIP_URL_PARTS
         s["skip_url_parts"] = SKIP_URL_PARTS
+    try:
+        UAH_PER_EUR = max(1.0, float(s.get("uah_per_eur") or 48))
+    except (TypeError, ValueError):
+        pass
     return s
 
 
@@ -181,7 +200,7 @@ def load_feedback_examples(max_each: int = 12) -> str:
             return 0
 
     docs.sort(key=when, reverse=True)
-    good = [d for d in docs if d.get("status") in ("taken", "interesting", "gone")][:max_each]
+    good = [d for d in docs if d.get("status") in ("taken", "interesting", "gone") and not d.get("auto_gone")][:max_each]
     bad = [d for d in docs if d.get("status") == "skip"][:max_each]
     if not good and not bad:
         return ""
@@ -253,6 +272,23 @@ def fingerprint(ad: Ad) -> str:
     return fp(ad)
 
 
+def _tg_ref(doc_id: str) -> str:
+    from .tgbuttons import ref
+    return ref(doc_id)
+
+
+def already_sent(ad: Ad) -> bool:
+    """True if this ad already went to Telegram (e.g. from an overlapping run)."""
+    db = _client()
+    if db is None:
+        return False
+    try:
+        snap = db.collection("finds").document(ad.key.replace(":", "_")).get()
+        return bool(snap.exists and (snap.to_dict() or {}).get("sent"))
+    except Exception:
+        return False
+
+
 def save_find(ad: Ad, verdict: dict, sent: bool, run_id: str | None) -> None:
     db = _client()
     if db is None:
@@ -276,12 +312,18 @@ def save_find(ad: Ad, verdict: dict, sent: bool, run_id: str | None) -> None:
                 "price": str(verdict.get("price", ""))[:100],
                 "price_etsy": str(verdict.get("price_etsy", ""))[:60],
                 "price_ebay": str(verdict.get("price_ebay", ""))[:60],
+                "price_conf": str(verdict.get("price_conf", ""))[:20],
                 "query_en": str(verdict.get("query_en", ""))[:100],
                 "etsy_ok": bool(verdict.get("etsy_ok", False)),
                 "era": str(verdict.get("era", ""))[:60],
                 "posted_at": ad.posted_at or None,
+                "price_uah": float(ad.price or 0),
+                "price_eur": round(float(ad.price or 0) / UAH_PER_EUR, 2),
                 "fingerprint": fingerprint(ad),
                 "pickup": str(verdict.get("pickup", ""))[:100],
+                "hunt": str(verdict.get("hunt", ""))[:60],
+                "tg_ref": _tg_ref(doc_id),
+                "lot": [{"title": m.title[:120], "url": m.url, "price": float(m.price or 0)} for m in ad.members[:30]],
                 "sent": sent,
                 "analyzed_at": _now(),
                 "run_id": run_id,
@@ -290,3 +332,111 @@ def save_find(ad: Ad, verdict: dict, sent: bool, run_id: str | None) -> None:
         )
     except Exception as exc:
         log.error("Firestore save_find failed: %s", exc)
+
+
+# ---------- quota, liveness, digest ----------
+def _pacific_midnight_utc() -> datetime:
+    """Gemini daily quotas reset at midnight Pacific time."""
+    from zoneinfo import ZoneInfo
+    now = datetime.now(ZoneInfo("America/Los_Angeles"))
+    return now.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc)
+
+
+def gemini_used_today(exclude_run: str | None = None) -> int | None:
+    """Gemini requests spent since the last quota reset, from the runs log (None = unknown)."""
+    db = _client()
+    if db is None:
+        return None
+    try:
+        used = 0
+        for d in db.collection("runs").where("started_at", ">=", _pacific_midnight_utc()).stream():
+            if d.id == exclude_run:
+                continue
+            r = d.to_dict()
+            if r.get("status") == "running":
+                used += int((r.get("progress") or {}).get("calls") or 0)
+            else:
+                used += int(r.get("ai_calls") or r.get("analyzed") or 0)
+        return used
+    except Exception as exc:
+        log.warning("Firestore quota read failed: %s", exc)
+        return None
+
+
+def load_open_finds(min_score: int, max_n: int = 60, recheck_hours: float = 2.0) -> list[dict]:
+    """Open finds (new / interesting, at/above the threshold, last 30 days) due for an «is it still online?» check."""
+    db = _client()
+    if db is None:
+        return []
+    now = _now().timestamp()
+    out = []
+    try:
+        for d in db.collection("finds").where("score", ">=", min_score).stream():
+            f = d.to_dict()
+            if (f.get("status") or "new") not in ("new", "interesting"):
+                continue
+            t = f.get("analyzed_at")
+            if t is None or now - t.timestamp() > 30 * 86400:
+                continue
+            c = f.get("checked_at")
+            if c is not None and now - c.timestamp() < recheck_hours * 3600:
+                continue
+            out.append({"id": d.id, "url": f.get("url", ""), "source": f.get("source", ""),
+                        "checked": c.timestamp() if c else 0})
+    except Exception as exc:
+        log.warning("Firestore open-finds load failed: %s", exc)
+        return []
+    out.sort(key=lambda x: x["checked"])  # never-checked first
+    return out[:max_n]
+
+
+def mark_checked(doc_id: str, alive: bool) -> None:
+    db = _client()
+    if db is None:
+        return
+    patch = {"checked_at": _now()}
+    if not alive:
+        patch.update(status="gone", status_at=_now(), auto_gone=True)
+    try:
+        db.collection("finds").document(doc_id).set(patch, merge=True)
+    except Exception as exc:
+        log.warning("Firestore mark_checked failed: %s", exc)
+
+
+def finds_since(ts: datetime) -> list[dict]:
+    db = _client()
+    if db is None:
+        return []
+    try:
+        return [d.to_dict() for d in db.collection("finds").where("analyzed_at", ">=", ts).stream()]
+    except Exception as exc:
+        log.warning("Firestore finds_since failed: %s", exc)
+        return []
+
+
+def runs_since(ts: datetime) -> list[dict]:
+    db = _client()
+    if db is None:
+        return []
+    try:
+        return [d.to_dict() for d in db.collection("runs").where("started_at", ">=", ts).stream()]
+    except Exception as exc:
+        log.warning("Firestore runs_since failed: %s", exc)
+        return []
+
+
+def claim_digest(day: str) -> bool:
+    """True once per Kyiv day: records that the evening digest for `day` was sent."""
+    db = _client()
+    if db is None:
+        return False
+    ref = db.collection("config").document("state")
+    try:
+        snap = ref.get()
+        if snap.exists and snap.to_dict().get("digest_day") == day:
+            return False
+        ref.set({"digest_day": day, "digest_at": _now()}, merge=True)
+        return True
+    except Exception as exc:
+        log.warning("Firestore digest claim failed: %s", exc)
+        return False
