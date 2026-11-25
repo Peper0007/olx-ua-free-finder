@@ -252,3 +252,18 @@ def test_night_pause():
     # at 02:00 UTC (18:00 PT) the rest of the Pacific day is 15:00–06:00 local: the night slots don't count
     t = datetime(2026, 11, 25, 2, 0, tzinfo=timezone.utc)
     assert main.runs_left_today(t, settings=s) < main.runs_left_today(t)
+
+
+def test_expected_runs_left_uses_real_pace():
+    import main
+    from datetime import datetime, timezone
+    from finder import remote
+    s = {"night": {"enabled": False}}
+    now = datetime(2026, 11, 25, 16, 0, tzinfo=timezone.utc)  # 08:00 PT → 16 h to the reset, 48 cron slots
+    with mock.patch.object(remote, "enabled", lambda: True), \
+         mock.patch.object(remote, "runs_since", lambda ts: [{}]):  # only 1 run in the last 3 hours
+        rare = main.expected_runs_left(now, s)
+    with mock.patch.object(remote, "enabled", lambda: True), \
+         mock.patch.object(remote, "runs_since", lambda ts: [{}] * 9):  # every 20 min
+        full = main.expected_runs_left(now, s)
+    assert rare == 5 and full == main.runs_left_today(now, settings=s), (rare, full)
