@@ -2,8 +2,9 @@ name: Free stuff finder UA
 
 on:
   schedule:
-    # 05,09,13,17 UTC = 07:37, 11:37, 15:37, 19:37 по Киеву зимой (летом на час позже)
-    - cron: "37 5,9,13,17 * * *"
+    # каждые 20 минут: в :13, :33, :53 (не в :00 — в начале часа GitHub чаще пропускает запуски).
+    # Минуты должны совпадать с RUN_MINUTES в main.py и CRON_MINS в dashboard/app.js.
+    - cron: "13,33,53 * * * *"
   workflow_dispatch:
     inputs:
       mode:
@@ -29,6 +30,10 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
+        with:
+          # the newest main, not the commit at trigger time: a run that waited in the queue must see
+          # the seen.json saved by the run before it, or it re-sends the same finds
+          ref: main
 
       - uses: actions/setup-python@v6
         with:
