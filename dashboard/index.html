@@ -4,7 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Free Finder UA 🇺🇦 — дашборд</title>
-  <link rel="stylesheet" href="style.css?v=17">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 20'%3E%3Crect width='30' height='20' fill='%23ffd500'/%3E%3Crect width='30' height='10' fill='%230057b7'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css?v=19">
 </head>
 <body>
   <!-- Login -->
@@ -55,13 +56,20 @@
           <label>Статус
             <select id="f-status">
               <option value="">все</option><option value="new">новые</option><option value="interesting">интересно</option>
-              <option value="skip">мимо</option>
+              <option value="low_profit">невыгодно</option><option value="skip">мимо</option>
             </select>
+          </label>
+          <label>Цена
+            <select id="f-paid"><option value="">все</option><option value="free">бесплатные</option><option value="paid">платные (дешёвые)</option></select>
+          </label>
+          <label>Где
+            <select id="f-area"><option value="">везде</option><option value="near">рядом с домом</option><option value="reach">рядом или отправят</option></select>
           </label>
           <label>Площадка
             <select id="f-platform"><option value="">все</option><option value="etsy">Etsy-винтаж</option><option value="ebay">только eBay</option></select>
           </label>
           <input id="f-search" type="search" placeholder="Поиск по названию, городу…">
+          <button id="btn-route" class="btn small" title="Открыть в Google Maps маршрут по находкам со статусом «интересно»">🗺 Маршрут по «интересным»</button>
           <label>Показать
             <select id="f-limit"><option>100</option><option selected>300</option><option>1000</option></select>
           </label>
@@ -73,14 +81,17 @@
 
       <!-- TAKEN -->
       <section id="tab-taken" class="tab hidden">
-        <p class="muted small">Сюда попадает всё, что отмечено «забрал». Чтобы вернуть вещь в «Находки», нажми у неё другой статус.</p>
+        <p class="muted small">Сюда попадает всё, что отмечено «забрал». Чтобы вернуть вещь в «Находки», нажми у неё другой статус.
+          Когда продашь вещь — впиши у карточки, где и за сколько, расходы и сколько часов ушло: ниже посчитается, сколько это приносит.</p>
+        <div id="sales-summary"></div>
         <div id="taken" class="grid folder-grid"></div>
         <p id="taken-empty" class="muted hidden"></p>
       </section>
 
       <!-- GONE -->
       <section id="tab-gone" class="tab hidden">
-        <p class="muted small">Вещи, которые успел забрать кто-то другой. ИИ считает их удачными находками (учится на них), просто вы не успели.</p>
+        <p class="muted small">Вещи, которые успел забрать кто-то другой. ИИ считает их удачными находками (учится на них), просто вы не успели.
+          Сюда же бот сам переносит находки, объявления которых сняли с сайта (на них ИИ не учится).</p>
         <div id="gone" class="grid folder-grid"></div>
         <p id="gone-empty" class="muted hidden"></p>
       </section>
@@ -103,9 +114,16 @@
               <input id="s-min" type="range" min="0" max="10">
             </label>
             <label>Сколько объявлений отдавать ИИ за запуск
-              <input id="s-maxai" type="number" min="1" max="200">
-              <span class="hint">Бесплатный лимит Gemini — 500 запросов в день, запусков 4 в день (+ ручные).</span>
+              <input id="s-maxai" type="number" min="1" max="400">
+              <span class="hint">Верхняя граница. Проверка идёт каждые 20 минут, и бот сам делит дневной лимит Gemini (500 запросов) поровну на оставшиеся до сброса запуски.</span>
             </label>
+            <label>Объявлений в одном запросе к ИИ
+              <input id="s-batch" type="number" min="1" max="6">
+              <span class="hint">Лимит Gemini считается в запросах, а не в объявлениях: 4 в запросе = в 4 раза больше проверенных объявлений в день. 1 = по одному (как раньше).</span>
+            </label>
+            <label class="switch"><input id="s-alive" type="checkbox"> Проверять, не сняли ли объявление (снятые уходят в «Забранные другими»)</label>
+            <label class="switch"><input id="s-digest" type="checkbox"> Вечерняя сводка в Telegram</label>
+            <label>Время сводки (час по Киеву) <input id="s-digest-hour" type="number" min="0" max="23"></label>
             <label class="switch"><input id="s-learn" type="checkbox"> Учиться на моих отметках («забрал», «интересно», «мимо»)</label>
             <span class="hint">ИИ видит ваши последние отметки как примеры и подстраивает оценки под ваш вкус.</span>
             <label>Со звуком в Telegram — от оценки
@@ -119,12 +137,34 @@
               </datalist>
               <span class="hint">Лимиты моделей: AI Studio → Rate Limit. Flash Lite — 15 в минуту, 500 в день.</span>
             </label>
+            <label>Запасные модели (через запятую)
+              <input id="s-fallback" placeholder="gemini-3.1-flash-lite, gemini-2.5-flash-lite">
+              <span class="hint">Если основная модель перегружена (ошибка 503) или исчерпала свой дневной лимит, тот же запрос сразу уходит запасной. У каждой модели свой бесплатный лимит.</span>
+            </label>
           </div>
           <div class="card">
             <h3>Источники</h3>
             <label class="switch"><input id="s-olx" type="checkbox"> OLX.ua («Віддам безкоштовно»)</label>
             <label>Страниц OLX <input id="s-olx-pages" type="number" min="1" max="25"><span class="hint">25 = все ~1000 объявлений</span></label>
-            
+            <h3>Дешёвое на OLX (не только бесплатное)</h3>
+            <label class="switch"><input id="s-cheap" type="checkbox"> Смотреть платные объявления до указанной цены</label>
+            <label>Цена до, грн <input id="s-cheap-max" type="number" min="1" step="10"></label>
+            <label>В Telegram — платные от оценки <input id="s-paid-min" type="number" min="0" max="11"><span class="hint">Дешёвые платные вещи ИИ оценивает высоко чаще, поэтому в канал идут только самые сильные. В дашборде видны все (фильтр «Цена»).</span></label>
+            <label>Страниц на категорию <input id="s-cheap-pages" type="number" min="1" max="25"><span class="hint">~50 объявлений на странице, самые свежие сверху.</span></label>
+            <label>Категории OLX (часть ссылки, по одной в строке)
+              <textarea id="s-cheap-cats" rows="3"></textarea>
+              <span class="hint"><code>hobbi-otdyh-i-sport/antikvariat-kollektsii</code> — Антикваріат, колекції,
+                <code>hobbi-otdyh-i-sport/knigi-zhurnaly</code> — Книги, журнали, <code>hobbi-otdyh-i-sport/cd-dvd-plastinki</code> — CD, DVD, платівки.</span>
+            </label>
+          </div>
+          <div class="card">
+            <h3>Где забирать</h3>
+            <label>Город <input id="s-home-city" placeholder="пусто = вся Украина посылкой"></label>
+            <label>Рядом (по одному в строке)
+              <textarea id="s-home-near" rows="6"></textarea>
+            </label>
+            <span class="hint">Объявления отсюда и те, что продавец готов отправить (Нова пошта / Укрпошта / OLX Доставка), ИИ проверяет первыми. Далёкие «только самовывоз» ИИ оценивает на 1–2 балла ниже.</span>
+            <label class="switch"><input id="s-home-only" type="checkbox"> Пропускать далёкие объявления «только самовывоз» совсем</label>
           </div>
         </div>
         <button class="btn primary save" data-save="settings">Сохранить настройки</button>
@@ -137,7 +177,11 @@
           ищется часть слова, регистр не важен (<code>кот(е|ет|енц)</code>, <code>\bтор\b</code>).</p>
         <div class="cards">
           <div class="card"><h3>Мусор (пропускать)</h3><textarea id="w-skip" rows="22"></textarea></div>
-          <div class="card"><h3>Исключения (всегда к ИИ)</h3><textarea id="w-keep" rows="10"></textarea>
+          <div class="card"><h3>🎯 Охота (всегда в Telegram со звуком)</h3>
+            <textarea id="w-hunt" rows="6" placeholder="например: Val Saint Lambert"></textarea>
+            <span class="hint">Ваши слова: бренды, модели, мастера. Ищется в названии и описании. Такие объявления ИИ смотрит первыми,
+              и они всегда приходят в Telegram со звуком, даже с низкой оценкой. По одному слову в строке.</span>
+            <h3>Исключения (всегда к ИИ)</h3><textarea id="w-keep" rows="10"></textarea>
             <h3>Пропускать категории (часть ссылки)</h3>
             <textarea id="w-url" rows="4"></textarea>
             <span class="hint">OLX: <code>CID339</code> животные, <code>CID139</code> детские, <code>CID655</code> мода, <code>CID262</code> дом, <code>CID632</code> электроника, <code>CID618</code> книги/музыка/хобби, <code>CID1609</code> антики. Код виден в ссылке объявления.</span>
@@ -191,15 +235,6 @@
               <span class="hint">Flash Lite на бесплатном тарифе — 500 в день. Точная цифра: AI Studio → Rate limit. Сброс — в полночь по тихоокеанскому времени.</span>
             </label>
           </div>
-          <div class="card">
-            <h3>GitHub Actions — минуты за месяц</h3>
-            <div id="lim-gh"></div>
-            <label>Минут в месяц
-              <input id="l-ghmin" type="number" min="1" max="100000">
-              <span class="hint">Бесплатный GitHub для приватного репозитория — 2000 мин/мес, каждый запуск округляется вверх до минуты.
-                Точно: <a href="https://github.com/settings/billing/usage" target="_blank" rel="noopener">GitHub → Billing → Usage</a>.</span>
-            </label>
-          </div>
         </div>
         <button class="btn primary save" data-save="limits">Сохранить лимиты</button>
         <p class="muted small">Расчёт по журналу запусков в дашборде. Запросы к Gemini из других мест (AI Studio и т.п.) с тем же ключом тоже тратят лимит, но здесь не видны.</p>
@@ -207,6 +242,6 @@
     </main>
   </div>
 
-  <script type="module" src="app.js?v=17"></script>
+  <script type="module" src="app.js?v=23"></script>
 </body>
 </html>

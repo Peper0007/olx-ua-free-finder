@@ -7,8 +7,8 @@ import { DEFAULTS } from "./defaults.js";
 
 const REPO = "Peper0007/olx-ua-free-finder";
 const WORKFLOW = "finder.yml";
-const SOURCE_NAMES = { olx: "OLX.ua" };
-const STATUS = { new: "новое", interesting: "интересно", taken: "забрал", gone: "уже забрали", spam: "спам", skip: "мимо" };
+const SOURCE_NAMES = { olx: "OLX.ua", olx_cheap: "OLX.ua дешёвые" };
+const STATUS = { new: "новое", interesting: "интересно", taken: "забрал", gone: "уже забрали", spam: "спам", low_profit: "невыгодно", skip: "мимо" };
 // statuses that move a find out of «Находки» into its own tab
 const FOLDERS = {
   taken: { tab: "taken", title: "Забранные", badge: "✅ Забрал", empty: "Пока ничего не забрано. Нажми «забрал» у находки — она переедет сюда." },
@@ -107,14 +107,25 @@ function fillForms() {
   setVal("#s-min", s.min_score); if ($("#s-min-val")) $("#s-min-val").textContent = s.min_score;
   setVal("#s-maxai", s.max_ai_per_run);
   setChk("#s-learn", s.learn_from_marks !== false);
-  setVal("#s-loud", s.loud_score ?? 8);
+  setVal("#s-loud", s.loud_score ?? 6);
   setVal("#s-model", s.model);
+  setVal("#s-fallback", (s.fallback_models || []).join(", "));
+  setVal("#s-batch", s.ai_batch ?? 4);
+  setVal("#s-paid-min", s.paid_min_score ?? 6);
+  setChk("#s-alive", s.check_alive !== false);
+  setChk("#s-digest", s.digest?.enabled !== false); setVal("#s-digest-hour", s.digest?.hour ?? 21);
+  const ch = s.sources.olx_cheap || {};
+  setChk("#s-cheap", ch.enabled); setVal("#s-cheap-max", ch.max_uah ?? 200); setVal("#s-cheap-pages", ch.pages ?? 3);
+  setVal("#s-cheap-cats", (ch.categories || []).join("\n"));
+  setVal("#s-home-city", s.home?.city || ""); setVal("#s-home-near", (s.home?.nearby || []).join("\n"));
+  setChk("#s-home-only", s.home?.only_near);
   setChk("#s-olx", s.sources.olx.enabled); setVal("#s-olx-pages", s.sources.olx.pages);
   setVal("#w-skip", (s.skip_words || []).join("\n"));
   setVal("#w-keep", (s.keep_words || []).join("\n"));
+  setVal("#w-hunt", (s.hunt_words || []).join("\n"));
   setVal("#w-url", (s.skip_url_parts || []).join("\n"));
   setVal("#c-text", s.criteria);
-  setVal("#l-rpd", s.gemini_rpd ?? 500); setVal("#l-ghmin", s.gh_minutes ?? 2000);
+  setVal("#l-rpd", s.gemini_rpd ?? 500);
   setVal("#f-score", s.min_score); if ($("#f-score-val")) $("#f-score-val").textContent = s.min_score;
   renderBotState();
 }
@@ -133,20 +144,29 @@ async function save(part) {
       paused: $("#s-paused").checked,
       telegram_enabled: $("#s-telegram").checked,
       min_score: +$("#s-min").value,
-      max_ai_per_run: Math.max(1, Math.min(200, +$("#s-maxai").value || 100)),
+      max_ai_per_run: Math.max(1, Math.min(400, +$("#s-maxai").value || 100)),
       learn_from_marks: $("#s-learn").checked,
-      loud_score: Math.max(0, Math.min(11, +$("#s-loud").value || 8)),
+      loud_score: Math.max(0, Math.min(11, +$("#s-loud").value || 6)),
       model: $("#s-model").value.trim() || DEFAULTS.model,
+      fallback_models: $("#s-fallback").value.split(",").map((x) => x.trim()).filter(Boolean),
+      ai_batch: Math.max(1, Math.min(6, +$("#s-batch").value || 4)),
+      paid_min_score: Math.max(0, Math.min(11, +$("#s-paid-min").value || 6)),
+      check_alive: $("#s-alive").checked,
+      digest: { enabled: $("#s-digest").checked, hour: Math.max(0, Math.min(23, +$("#s-digest-hour").value || 21)) },
+      home: { city: $("#s-home-city").value.trim(), nearby: lines($("#s-home-near").value), only_near: $("#s-home-only").checked },
       sources: {
         olx: { enabled: $("#s-olx").checked, pages: Math.max(1, Math.min(25, +$("#s-olx-pages").value || 25)) },
+        olx_cheap: { enabled: $("#s-cheap").checked, max_uah: Math.max(1, +$("#s-cheap-max").value || 200),
+                     pages: Math.max(1, Math.min(25, +$("#s-cheap-pages").value || 3)), categories: lines($("#s-cheap-cats").value) },
         bazar: { enabled: false, pages: 0 },
         alo: { enabled: false, queries: [] },
       },
     };
   } else if (part === "limits") {
-    patch = { gemini_rpd: Math.max(1, +$("#l-rpd").value || 500), gh_minutes: Math.max(1, +$("#l-ghmin").value || 2000) };
+    patch = { gemini_rpd: Math.max(1, +$("#l-rpd").value || 500) };
   } else if (part === "filters") {
-    patch = { skip_words: lines(getVal("#w-skip")), keep_words: lines(getVal("#w-keep")), skip_url_parts: lines(getVal("#w-url")) };
+    patch = { skip_words: lines(getVal("#w-skip")), keep_words: lines(getVal("#w-keep")), skip_url_parts: lines(getVal("#w-url")),
+              hunt_words: lines(getVal("#w-hunt")) };
   } else {
     patch = { criteria: $("#c-text").value.trim() || DEFAULTS.criteria };
   }
@@ -207,7 +227,7 @@ function subscribeFinds() {
   }, (e) => toast("Ошибка загрузки папок: " + e.message, true));
 }
 $("#f-limit").onchange = subscribeFinds;
-["#f-score", "#f-source", "#f-status", "#f-search", "#f-platform"].forEach((s) => ($(s).oninput = () => {
+["#f-score", "#f-source", "#f-status", "#f-search", "#f-platform", "#f-paid", "#f-area"].forEach((s) => ($(s).oninput = () => {
   todayOnly = false; $("#f-score-val").textContent = $("#f-score").value; renderFinds();
 }));
 
@@ -225,12 +245,21 @@ function priceLinks(query) {
           a(`https://www.etsy.com/search?q=${q}`, "Etsy")].join(" · ");
 }
 
+function isNear(f) {
+  const loc = (f.location || "").toLowerCase();
+  return [settings.home?.city, ...(settings.home?.nearby || [])].some((p) => p && loc.includes(p.toLowerCase()));
+}
+function ships(f) { return /курьер|отправит|почт|доставк/i.test(f.pickup || "") || !!f.delivery; }
+
 function renderFinds() {
   const minS = +$("#f-score").value, src = $("#f-source").value, st = $("#f-status").value, plat = $("#f-platform").value;
   const q = $("#f-search").value.trim().toLowerCase();
+  const paid = $("#f-paid").value, area = $("#f-area").value;
   const list = finds.filter((f) => !(f.status in FOLDERS) &&
+    (!paid || (paid === "paid" ? (f.price_eur || 0) > 0 : !(f.price_eur > 0))) &&
+    (!area || (area === "near" ? isNear(f) : area === "reach" ? isNear(f) || ships(f) : true)) &&
     (f.score ?? 0) >= minS && (!todayOnly || f.analyzed_at?.toDate?.().toDateString() === new Date().toDateString()) && (!src || f.source === src) && (!plat || (plat === "etsy" ? f.etsy_ok === true : f.etsy_ok === false)) && (!st || (f.status || "new") === st) &&
-    (!q || `${f.title} ${f.location} ${f.items}`.toLowerCase().includes(q)));
+    (!q || `${f.title} ${f.location} ${f.items} ${f.description || ""} ${f.query_en || ""}`.toLowerCase().includes(q)));
 
   const today = new Date().toDateString();
   const hits = finds.filter((f) => (f.score ?? 0) >= settings.min_score);
@@ -248,30 +277,100 @@ function renderFinds() {
 
 function cardHTML(f) {
   return `
-    <article class="find ${f.status === "skip" ? "dim" : ""} ${f.status in FOLDERS ? "folder-" + f.status : ""}">
+    <article class="find ${f.status === "skip" || f.status === "low_profit" ? "dim" : ""} ${f.status in FOLDERS ? "folder-" + f.status : ""}">
       <a class="ph" href="${esc(f.url)}" target="_blank" rel="noopener">
         ${f.photos?.[0] ? `<img loading="lazy" referrerpolicy="no-referrer" src="${esc(f.photos[0])}" alt="">` : `<div class="nophoto">нет фото</div>`}
         <span class="score ${scoreClass(f.score)}">${f.score}/10</span>
         ${f.sent ? `<span class="tg" title="Отправлено в Telegram">✈</span>` : ""}
       </a>
       <div class="body">
-        ${f.status in FOLDERS ? `<p class="folder-badge ${f.status}">${FOLDERS[f.status].badge}${f.status_at ? " · " + fmtDate(f.status_at) : ""}</p>` : ""}
+        ${f.status in FOLDERS ? `<p class="folder-badge ${f.status}">${f.auto_gone && f.status === "gone" ? "🏃 Объявление снято с сайта (проверил бот)" : FOLDERS[f.status].badge}${f.status_at ? " · " + fmtDate(f.status_at) : ""}</p>` : ""}
+        ${f.price_eur > 0 ? `<p class="paid">💶 Платное: <b>${esc(f.price_uah ?? f.price_eur)} грн</b></p>` : ""}
+        ${f.lot?.length ? `<details class="lot"><summary>📦 Лот: ${f.lot.length} объявлений одного продавца</summary>${f.lot.map((m) =>
+          `<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.title)}</a>${m.price ? ` — ${esc(m.price)} грн` : ""}`).join("<br>")}</details>` : ""}
+        ${f.hunt ? `<p class="hunt">🎯 Охота: «${esc(f.hunt)}»</p>` : ""}
         <a class="title" href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.title)}</a>
         ${f.items ? `<p>🔎 ${esc(f.items)}</p>` : ""}
         ${f.why ? `<p class="muted">💡 ${esc(f.why)}</p>` : ""}
-        <p class="price">💰 ${f.price_etsy || f.price_ebay ? `Etsy <b>${esc(f.price_etsy || "—")}</b> · eBay <b>${esc(f.price_ebay || "—")}</b>` : esc(f.price || "—")}</p>
+        <p class="price">💰 ${f.price_etsy || f.price_ebay ? `Etsy <b>${esc(f.price_etsy || "—")}</b> · eBay <b>${esc(f.price_ebay || "—")}</b>` : esc(f.price || "—")}${f.price_conf && f.price_conf !== "высокая" ? ` <span class="conf ${f.price_conf === "низкая" ? "low" : ""}" title="Уверенность ИИ в цене">· ${esc(f.price_conf)} уверенность</span>` : ""}</p>
         ${"etsy_ok" in f ? `<p class="plat ${f.etsy_ok ? "etsy" : "ebay"}">🏷 ${f.etsy_ok ? "Etsy ✅ винтаж/handmade" : "только eBay"}${f.era ? ` · ${esc(f.era)}` : ""}</p>` : ""}
         <p class="checks">🔍 ${priceLinks(f.query_en || f.title)}${f.query_en ? ` <span class="muted small">«${esc(f.query_en)}»</span>` : ""}</p>
         <p class="meta">🚚 ${esc(f.pickup || "—")}</p>
         <p class="meta">📍 ${esc(f.location || "?")} · ${SOURCE_NAMES[f.source] || f.source}</p>
         <p class="meta">🕐 опубликовано ${f.posted_at ? ago(f.posted_at * 1000) : esc(f.posted || "?")} · оценено ${fmtDate(f.analyzed_at)}</p>
         <button class="btn small copy" data-copy="${esc(f.id)}">✉️ Скопировать текст продавцу</button>
+        ${f.status === "taken" ? salesHTML(f) : ""}
         <div class="status">
           ${Object.entries(STATUS).map(([k, v]) => `<button data-id="${esc(f.id)}" data-st="${k}" class="${(f.status || "new") === k ? "on" : ""}">${v}</button>`).join("")}
         </div>
       </div>
     </article>`;
 }
+
+// ---------- sales tracking (on «Забранные» cards) ----------
+const SOLD_WHERE = { "": "не продано", etsy: "Etsy", ebay: "eBay", local: "OLX / лично", other: "другое" };
+function salesHTML(f) {
+  const v = (x) => (x === undefined || x === null ? "" : esc(x));
+  return `<div class="sales" data-sales="${esc(f.id)}">
+    <label>Где продано <select name="sold_where">${Object.entries(SOLD_WHERE).map(([k, t]) => `<option value="${k}" ${(f.sold_where || "") === k ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+    <label>Продано за, € <input name="sold_price" type="number" min="0" step="0.01" value="${v(f.sold_price)}"></label>
+    <label>Расходы, € <input name="costs" type="number" min="0" step="0.01" value="${v(f.costs)}" title="доставка, комиссии, покупка"></label>
+    <label>Часов ушло <input name="hours" type="number" min="0" step="0.25" value="${v(f.hours)}" title="забрать, почистить, сфотографировать, отправить"></label>
+    <button class="btn small" data-save-sale="${esc(f.id)}">Сохранить</button>
+  </div>`;
+}
+function renderSales() {
+  const el = $("#sales-summary");
+  if (!el) return;
+  const mine = taken.filter((f) => f.status === "taken");
+  const monthStart = new Date(); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+  const sum = (list) => {
+    const sold = list.filter((f) => f.sold_where && +f.sold_price > 0);
+    const rev = sold.reduce((a, f) => a + +f.sold_price, 0);
+    const cost = list.reduce((a, f) => a + (+f.costs || 0) + (+f.price_eur || 0), 0);
+    const hours = list.reduce((a, f) => a + (+f.hours || 0), 0);
+    return { n: list.length, sold: sold.length, rev, cost, profit: rev - cost, hours, perHour: hours ? (rev - cost) / hours : null,
+             perItem: sold.length ? (rev - cost) / sold.length : null };
+  };
+  const eur = (x) => x === null ? "—" : (Math.round(x * 100) / 100).toLocaleString("ru-RU") + " €";
+  const row = (title, s) => `<tr><td>${title}</td><td>${s.n}</td><td>${s.sold}</td><td>${eur(s.rev)}</td><td>${eur(s.cost)}</td>
+    <td><b>${eur(s.profit)}</b></td><td>${s.hours || "—"}</td><td><b>${eur(s.perHour)}</b></td><td>${eur(s.perItem)}</td></tr>`;
+  const month = mine.filter((f) => ms(f.status_at || f.analyzed_at) >= +monthStart);
+  const by = (key, names) => Object.entries(names).map(([k, t]) => [t, mine.filter((f) => key(f) === k)]).filter(([, l]) => l.length);
+  const rows = [["Этот месяц", month], ["Всё время", mine],
+    ...by((f) => f.sold_where || "", Object.fromEntries(Object.entries(SOLD_WHERE).filter(([k]) => k))).map(([t, l]) => ["продано: " + t, l]),
+    ...by((f) => f.etsy_ok === true ? "etsy" : f.etsy_ok === false ? "ebay" : "", { etsy: "Etsy-винтаж", ebay: "только eBay" }).map(([t, l]) => ["тип: " + t, l]),
+    ...by((f) => f.source || "", SOURCE_NAMES).map(([t, l]) => ["сайт: " + t, l])];
+  el.innerHTML = mine.length ? `<table class="runs sales-table"><thead><tr><th></th><th>Забрано</th><th>Продано</th><th>Выручка</th>
+    <th>Расходы</th><th>Прибыль</th><th>Часов</th><th>€ в час</th><th>€ на вещь</th></tr></thead>
+    <tbody>${rows.map(([t, l]) => row(t, sum(l))).join("")}</tbody></table>
+    <p class="muted small">Расходы = то, что вы вписали (доставка, комиссии) + цена покупки у платных объявлений (в € по курсу из настроек, по умолчанию 48 грн/€). «€ в час» считается по вещам, где указаны часы.</p>` : "";
+}
+$("#taken").addEventListener("click", async (e) => {
+  const b = e.target.closest("button[data-save-sale]");
+  if (!b) return;
+  const box = b.closest("[data-sales]");
+  const val = (n) => box.querySelector(`[name="${n}"]`).value;
+  const num = (n) => (val(n) === "" ? null : Math.max(0, +val(n)));
+  try {
+    await updateDoc(doc(db, "finds", b.dataset.saveSale), { sold_where: val("sold_where"), sold_price: num("sold_price"),
+      costs: num("costs"), hours: num("hours"), sale_at: new Date() });
+    toast("Сохранено.");
+  } catch (err) { toast("Не удалось сохранить: " + err.message, true); }
+});
+
+// ---------- route for «интересно» ----------
+$("#btn-route").onclick = () => {
+  const list = finds.filter((f) => f.status === "interesting" && f.location);
+  if (!list.length) { toast("Нет находок со статусом «интересно» — отметь те, за которыми поедешь.", true); return; }
+  const near = list.filter(isNear), use = near.length ? near : list;
+  const groups = {};
+  for (const f of use) { const k = f.location.split(",").map((x) => x.trim()).slice(-1)[0] || f.location; (groups[k] ||= []).push(f); }
+  const stops = Object.keys(groups).slice(0, 10);
+  const url = "https://www.google.com/maps/dir/" + stops.map((x) => encodeURIComponent(x)).join("/");
+  window.open(url, "_blank", "noopener");
+  toast(`Маршрут: ${stops.map((k) => `${k} (${groups[k].length})`).join(" → ")}` + (near.length && near.length < list.length ? ` · ${list.length - near.length} далёких не включены` : ""));
+};
 
 function renderTaken() {
   for (const [st, cfg] of Object.entries(FOLDERS)) {
@@ -281,6 +380,7 @@ function renderTaken() {
     $(`#${cfg.tab}-empty`).classList.toggle("hidden", list.length > 0);
     $(`#${cfg.tab}`).innerHTML = list.map(cardHTML).join("");
   }
+  renderSales();
 }
 // stat tiles act as quick filters
 function activeTile() {
@@ -408,7 +508,7 @@ $("#btn-run").onclick = async () => {
 
 // ---------- limits ----------
 const PT = "America/Los_Angeles";              // Gemini daily quotas reset at midnight Pacific time
-const CRON_UTC_HOURS = [6, 10, 14, 18], CRON_MIN = 7; // must match .github/workflows/finder.yml
+const CRON_UTC_HOURS = [...Array(24).keys()], CRON_MINS = [13, 33, 53]; // every 20 min — must match .github/workflows/finder.yml
 const ms = (ts) => ts?.toMillis ? ts.toMillis() : ts ? +new Date(ts) : 0;
 
 function tzOffsetMs(date, tz) {
@@ -427,14 +527,13 @@ function scheduledBetween(from, to) {
   let n = 0;
   const d = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()));
   for (; +d < +to; d.setUTCDate(d.getUTCDate() + 1))
-    for (const h of CRON_UTC_HOURS) {
-      const t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h, CRON_MIN);
+    for (const h of CRON_UTC_HOURS) for (const mi of CRON_MINS) {
+      const t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h, mi);
       if (t > +from && t < +to) n++;
     }
   return n;
 }
 const fmtTime = (d) => d.toLocaleString("ru-RU", { weekday: "short", hour: "2-digit", minute: "2-digit" });
-const runMinutes = (r) => r.finished_at && r.started_at ? Math.max(1, Math.ceil((ms(r.finished_at) - ms(r.started_at)) / 60000)) : 0;
 function bar(used, total) {
   const p = Math.min(100, Math.round(used / total * 100));
   return `<div class="lim-bar"><i class="${p > 90 ? "bad" : p > 70 ? "mid" : ""}" style="width:${p}%"></i></div>`;
@@ -462,73 +561,44 @@ function renderLimits() {
   }
   const now = new Date();
   const maxAi = +settings.max_ai_per_run || 100;
-  const finished = limitRuns.filter((r) => r.finished_at);
   const last = limitRuns[0];
 
   // ---- Gemini ----
   const rpd = +settings.gemini_rpd || 500;
   const reset = lastPacificMidnight(now), nextReset = new Date(+reset + 86400000);
-  const recent = finished.slice(0, 5);
-  const avgCalls = recent.length ? Math.round(recent.reduce((a, r) => a + (r.ai_calls ?? r.analyzed ?? 0), 0) / recent.length) : maxAi;
-  const backlogOn = (last?.backlog ?? 1) > 0;
-  const perRun = Math.max(1, backlogOn ? maxAi : Math.min(maxAi, avgCalls || 1));
   const today = limitRuns.filter((r) => ms(r.started_at) >= +reset);
-  const stale = (r) => r.status === "running" && ms(r.started_at) < Date.now() - 35 * 60000;
-  const used = today.reduce((a, r) => a + (stale(r) ? (r.progress?.done ?? perRun) : r.status === "running" ? perRun : (r.ai_calls ?? r.analyzed ?? 0)), 0);
+  // a running run reports its Gemini requests in progress.calls; old runs without it count as their done ads
+  const used = today.reduce((a, r) => a + (r.status === "running" ? (r.progress?.calls ?? r.progress?.done ?? 0) : (r.ai_calls ?? r.analyzed ?? 0)), 0);
   // If Gemini itself said the daily quota is gone, trust that over our own count
   // (requests made outside the dashboard's log — older runs, AI Studio — also count).
   // only the latest finished run counts: a new API key (or a fresh quota) clears the warning
   const lastDone = today.find((r) => r.status !== "running");
   const exhausted = !!lastDone && (lastDone.errors || []).some((x) => /лимит Gemini/i.test(x));
   const left = exhausted ? 0 : Math.max(0, rpd - used);
+  // The bot spreads what's left of the day's quota evenly over the remaining scheduled runs (every 20 min)
+  // (a manual run takes the same share), so the evening still has quota for fresh ads.
   const sched = scheduledBetween(now, nextReset);
-  const reserve = sched * perRun;
-  const manual = Math.max(0, Math.floor((left - reserve) / perRun));
-  const manualNoSched = Math.floor(left / perRun);
+  const batch = +settings.ai_batch || 4;
+  const share = exhausted ? 0 : Math.max(left ? 3 : 0, Math.floor(left / (sched + 1)));
+  const shareAds = Math.min(maxAi, share * batch);
   $("#lim-gemini").innerHTML = `
     <div class="lim-big">${exhausted ? `исчерпан до ${fmtTime(nextReset)}` : `${used} / ${rpd}`}</div>${bar(exhausted ? rpd : used, rpd)}
-    <div class="lim-answer">Можно запустить вручную ещё <b>${manual}</b> раз(а) до сброса
-      ${manual === 0 && manualNoSched > 0 ? `<br><span class="small muted">или ${manualNoSched}, если не оставлять запас на запуски по расписанию — тогда они упрутся в лимит</span>` : ""}</div>
+    <div class="lim-answer">Следующая проверка (по расписанию или вручную) отдаст ИИ до <b>${shareAds}</b> объявлений
+      <br><span class="small muted">${share} запрос(ов) × ${batch} объявления в запросе. Бот сам делит остаток лимита поровну на запуски до сброса, поэтому ручные проверки лимит не «съедают» — просто каждая следующая получает чуть меньше.</span></div>
     <div class="lim-rows">
       <span>Осталось запросов</span><span>${left}</span>
       <span>Сброс лимита</span><span>${fmtTime(nextReset)}</span>
       <span>Запусков по расписанию до сброса</span><span>${sched}${settings.paused ? " (пауза)" : ""}</span>
-      <span>Один запуск тратит ~</span><span>${perRun} ${backlogOn ? "(есть очередь — берёт максимум)" : "(очередь пуста)"}</span>
-      <span>Зарезервировано под расписание</span><span>${reserve}</span>
+      <span>Объявлений в одном запросе</span><span>${batch}</span>
       <span>Запусков с начала суток</span><span>${today.length}</span>
+      <span>В очереди после последней проверки</span><span>${last?.backlog ?? "—"}</span>
     </div>`;
 
-  // ---- GitHub Actions minutes ----
-  const ghLimit = +settings.gh_minutes || 2000;
-  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-  const month = finished.filter((r) => ms(r.started_at) >= +monthStart);
-  const usedMin = month.reduce((a, r) => a + runMinutes(r), 0);
-  const durs = finished.slice(0, 5).map(runMinutes).filter(Boolean);
-  const avgMin = durs.length ? Math.ceil(durs.reduce((a, b) => a + b, 0) / durs.length) : 10;
-  const schedMonth = scheduledBetween(now, monthEnd);
-  const projected = schedMonth * avgMin;
-  const ghLeft = ghLimit - usedMin;
-  const ghManual = Math.max(0, Math.floor((ghLeft - projected) / avgMin));
-  const over = usedMin + projected - ghLimit;
-  $("#lim-gh").innerHTML = `
-    <div class="lim-big">${usedMin} / ${ghLimit} мин</div>${bar(usedMin, ghLimit)}
-    <div class="lim-answer">Можно запустить вручную ещё <b>${ghManual}</b> раз(а) до конца месяца
-      ${over > 0 ? `<br><span class="small err">При текущей длительности запусков расписание до конца месяца не уложится: перерасход ~${over} мин. Запуски станут короче, когда разберётся очередь; иначе уменьши «объявлений за запуск» или страницы OLX.</span>` : ""}</div>
-    <div class="lim-rows">
-      <span>Осталось минут</span><span>${Math.max(0, ghLeft)}</span>
-      <span>Средний запуск (последние 5)</span><span>${avgMin} мин</span>
-      <span>Запусков по расписанию до конца месяца</span><span>${schedMonth}</span>
-      <span>Они займут ~</span><span>${projected} мин</span>
-      <span>Сброс</span><span>${monthEnd.toLocaleDateString("ru-RU")}</span>
-    </div>
-    <p class="small muted">Не учтены запуски до подключения дашборда, деплои дашборда (~1 мин каждый) и тестовые режимы.</p>`;
   const pc = (a, b) => (a / b > 0.9 ? "bad" : a / b > 0.7 ? "mid" : "");
   const strip = $("#lim-strip");
   if (strip) strip.innerHTML = `
     <span class="${exhausted ? "bad" : pc(used, rpd)}">ИИ (Gemini): <b>${exhausted ? "лимит исчерпан" : `${used} / ${rpd}`}</b> за сутки, осталось ${left}, сброс ${nextReset.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}</span>
-    <span class="${pc(usedMin, ghLimit)}">GitHub: <b>${usedMin} / ${ghLimit}</b> мин за месяц</span>
-    <span>Ручных запусков можно: <b>${Math.min(manual, ghManual)}</b> сегодня</span>
+    <span>Следующая проверка: до <b>${shareAds}</b> объявлений к ИИ</span>
     <a href="#" data-goto="limits">подробнее</a>`;
 }
 
@@ -542,8 +612,8 @@ function ago(ts) {
 function nextScheduled(now = new Date()) {
   if (settings.paused) return null;
   for (let d = 0; d < 3; d++)
-    for (const h of CRON_UTC_HOURS) {
-      const t = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + d, h, CRON_MIN));
+    for (const h of CRON_UTC_HOURS) for (const mi of CRON_MINS) {
+      const t = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + d, h, mi));
       if (t > now) return t;
     }
   return null;
