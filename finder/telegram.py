@@ -107,23 +107,16 @@ def format_ad(ad: Ad, verdict: dict | None) -> str:
 def send_ad(ad: Ad, verdict: dict | None, silent: bool = False) -> None:
     caption = format_ad(ad, verdict)
     chat_id = os.environ["TELEGRAM_CHAT_ID"]
-    extra = {}
-    try:
-        from . import remote, tgbuttons
-        if remote.enabled():  # status buttons only make sense with the dashboard database
-            extra["reply_markup"] = tgbuttons.keyboard(tgbuttons.doc_id(ad.key))
-    except Exception as exc:
-        log.debug("no buttons: %s", exc)
     visible = html.unescape(re.sub(r"<[^>]+>", "", caption))  # Telegram's 1024 limit counts text, not markup
     if ad.photos and len(visible) <= 1024:
         try:
             _call("sendPhoto", chat_id=chat_id, photo=ad.photos[0], caption=caption, parse_mode="HTML",
-                  disable_notification=silent, **extra)
+                  disable_notification=silent)
             return
         except Exception as exc:  # e.g. Telegram can't fetch the image URL
             log.warning("sendPhoto failed (%s), falling back to text", exc)
     _call("sendMessage", chat_id=chat_id, text=caption, parse_mode="HTML", disable_web_page_preview=True,
-          disable_notification=silent, **extra)
+          disable_notification=silent)
 
 
 def print_chat_ids() -> None:
