@@ -102,11 +102,37 @@ def make_lots(ads: list[Ad], min_size: int = 3, max_items: int = 30) -> list[Ad]
     return out
 
 
-def runs_left_today(now_utc: datetime, minutes: tuple = RUN_MINUTES) -> int:
-    """Scheduled runs (see finder.yml) left until the Gemini quota resets at midnight Pacific."""
+LOCAL_TZ = "Europe/Kyiv"  # the owner's clock: night pause hours are in this time zone
+
+
+def is_night(t: datetime, settings: dict) -> bool:
+    """Night pause: scheduled runs between night.from and night.to (local hours) are skipped —
+    almost nothing new is posted then, and it means fewer requests to the sites."""
+    from zoneinfo import ZoneInfo
+    n = settings.get("night") or {}
+    if not n.get("enabled", True):
+        return False
+    h = t.astimezone(ZoneInfo(LOCAL_TZ)).hour
+    start, end = int(n.get("from", 1)), int(n.get("to", 6))
+    if start == end:
+        return False
+    return start <= h < end if start < end else (h >= start or h < end)
+
+
+def runs_left_today(now_utc: datetime, minutes: tuple = RUN_MINUTES, settings: dict | None = None) -> int:
+    """Scheduled runs (see finder.yml) left until the Gemini quota resets at midnight Pacific
+    (night-pause slots don't count: they don't run)."""
     from zoneinfo import ZoneInfo
     pt = now_utc.astimezone(ZoneInfo("America/Los_Angeles"))
-    return sum(1 for h in range(pt.hour, 24) for m in minutes if (h, m) > (pt.hour, pt.minute))
+    n = 0
+    for h in range(pt.hour, 24):
+        for m in minutes:
+            if (h, m) <= (pt.hour, pt.minute):
+                continue
+            if settings is not None and is_night(pt.replace(hour=h, minute=m, second=0, microsecond=0), settings):
+                continue
+            n += 1
+    return n
 
 
 def ai_allowance(settings: dict, run_id: str | None) -> tuple[int, int | None]:
@@ -117,7 +143,7 @@ def ai_allowance(settings: dict, run_id: str | None) -> tuple[int, int | None]:
     if used is None:
         return 40, None
     left = max(0, rpd - used)
-    share = left // (runs_left_today(datetime.now(timezone.utc)) + 1)
+    share = left // (runs_left_today(datetime.now(timezone.utc), settings=settings) + 1)
     return max(3 if left else 0, share), left
 
 
@@ -147,6 +173,9 @@ def run(dry_run: bool) -> int:
 
     if settings.get("paused") and trigger == "schedule":
         log.info("Bot is paused in the dashboard — skipping scheduled run")
+        return 0
+    if trigger == "schedule" and is_night(datetime.now(timezone.utc), settings):
+        log.info("Night pause (dashboard → Настройки) — skipping scheduled run")
         return 0
 
     prefilter.configure(settings.get("skip_words"), settings.get("keep_words"), settings.get("skip_url_parts"),
