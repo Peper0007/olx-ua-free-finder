@@ -13,6 +13,7 @@ on:
         default: run
         options:
           - run        # обычный поиск
+          - scheduled  # внешний будильник (cron-job.org): как запуск по расписанию — пауза и ночь учитываются
           - test       # прислать тестовое сообщение в Telegram
           - chat-id    # показать TELEGRAM_CHAT_ID в логе
           - dry-run    # поиск без отправки (результат в логе)
@@ -52,17 +53,18 @@ jobs:
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
           MIN_SCORE: ${{ vars.MIN_SCORE }}
           MAX_AI_PER_RUN: ${{ vars.MAX_AI_PER_RUN }}
+          RUN_MODE: ${{ github.event.inputs.mode }}
         run: |
           MODE="${{ github.event.inputs.mode || 'run' }}"
           case "$MODE" in
-            run)     python main.py ;;
+            run|scheduled) python main.py ;;
             test)    python main.py --test ;;
             chat-id) python main.py --chat-id ;;
             dry-run) python main.py --dry-run ;;
           esac
 
       - name: Save seen ads
-        if: always() && (github.event_name == 'schedule' || github.event.inputs.mode == 'run')
+        if: always() && (github.event_name == 'schedule' || github.event.inputs.mode == 'run' || github.event.inputs.mode == 'scheduled')
         run: |
           git config user.name "finder-bot"
           git config user.email "finder-bot@users.noreply.github.com"
