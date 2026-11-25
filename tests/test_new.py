@@ -238,3 +238,17 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             fn()
             print("ok", name)
+
+
+def test_night_pause():
+    import main
+    from datetime import datetime, timezone
+    s = {"night": {"enabled": True, "from": 1, "to": 6}}
+    noon = datetime(2026, 11, 25, 11, 0, tzinfo=timezone.utc)
+    night = datetime(2026, 11, 25, 2, 30, tzinfo=timezone.utc)  # 03:30–04:30 local in winter
+    assert not main.is_night(noon, s) and main.is_night(night, s)
+    assert not main.is_night(night, {"night": {"enabled": False}})
+    assert main.is_night(datetime(2026, 11, 25, 22, 30, tzinfo=timezone.utc), {"night": {"from": 23, "to": 6}})
+    # at 02:00 UTC (18:00 PT) the rest of the Pacific day is 15:00–06:00 local: the night slots don't count
+    t = datetime(2026, 11, 25, 2, 0, tzinfo=timezone.utc)
+    assert main.runs_left_today(t, settings=s) < main.runs_left_today(t)
