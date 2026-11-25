@@ -143,8 +143,25 @@ def ai_allowance(settings: dict, run_id: str | None) -> tuple[int, int | None]:
     if used is None:
         return 40, None
     left = max(0, rpd - used)
-    share = left // (runs_left_today(datetime.now(timezone.utc), settings=settings) + 1)
+    share = left // (expected_runs_left(datetime.now(timezone.utc), settings) + 1)
     return max(3 if left else 0, share), left
+
+
+def expected_runs_left(now_utc: datetime, settings: dict, window_h: float = 3.0) -> int:
+    """Runs still to come before the quota resets. GitHub often skips scheduled runs, so instead of
+    trusting the cron (3 per hour) we use the real pace of the last few hours: when runs are rare,
+    each one gets a bigger share of the quota instead of leaving it unused."""
+    from datetime import timedelta
+    theo = runs_left_today(now_utc, settings=settings)
+    try:
+        recent = remote.runs_since(now_utc - timedelta(hours=window_h))
+    except Exception:
+        return theo
+    if not remote.enabled():
+        return theo
+    per_hour = max(1, len(recent)) / window_h  # at least one run per window
+    day_hours_left = theo / max(1, len(RUN_MINUTES))  # daytime hours to the reset (night pause excluded)
+    return max(1, min(theo, round(per_hour * day_hours_left)))
 
 
 def check_alive(settings: dict) -> int:
@@ -168,6 +185,8 @@ def check_alive(settings: dict) -> int:
 def run(dry_run: bool) -> int:
     settings = remote.load_settings()
     trigger = "manual" if os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch" else "schedule"
+    if os.environ.get("RUN_MODE") == "scheduled":  # external alarm clock (cron-job.org) — same rules as the cron
+        trigger = "schedule"
     if os.environ.get("GITHUB_EVENT_NAME") is None:
         trigger = "local"
 
