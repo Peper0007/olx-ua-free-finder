@@ -21,7 +21,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from finder import ai, alive, common, digest, geo, prefilter, remote, state, telegram, tgbuttons
+from finder import ai, alive, common, digest, geo, prefilter, remote, state, telegram
 from finder.dedup import fingerprint, title_fingerprint
 from finder.common import Ad, log
 from finder.sources import olx
@@ -177,11 +177,6 @@ def run(dry_run: bool) -> int:
     common.on_fetch = on_fetch
     try:
         report(force=True, phase="start")
-        if telegram_on:
-            try:  # taps on the status buttons under Telegram messages since the last run
-                stats["tg_marks"] = tgbuttons.process(telegram._call)
-            except Exception as exc:
-                log.warning("Telegram buttons: %s", exc)
         ads, counts, failed = collect(settings, seen, report)
         common.on_fetch = None
         new = [a for a in ads if a.key not in seen]
