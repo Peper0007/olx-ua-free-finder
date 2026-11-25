@@ -113,6 +113,7 @@ function fillForms() {
   setVal("#s-batch", s.ai_batch ?? 4);
   setVal("#s-paid-min", s.paid_min_score ?? 6);
   setChk("#s-alive", s.check_alive !== false);
+  setChk("#s-night", s.night?.enabled !== false); setVal("#s-night-from", s.night?.from ?? 1); setVal("#s-night-to", s.night?.to ?? 6);
   setChk("#s-digest", s.digest?.enabled !== false); setVal("#s-digest-hour", s.digest?.hour ?? 21);
   const ch = s.sources.olx_cheap || {};
   setChk("#s-cheap", ch.enabled); setVal("#s-cheap-max", ch.max_uah ?? 200); setVal("#s-cheap-pages", ch.pages ?? 3);
@@ -152,6 +153,8 @@ async function save(part) {
       ai_batch: Math.max(1, Math.min(6, +$("#s-batch").value || 4)),
       paid_min_score: Math.max(0, Math.min(11, +$("#s-paid-min").value || 6)),
       check_alive: $("#s-alive").checked,
+      night: { enabled: $("#s-night").checked, from: Math.max(0, Math.min(23, +$("#s-night-from").value || 0)),
+               to: Math.max(0, Math.min(23, +$("#s-night-to").value || 0)) },
       digest: { enabled: $("#s-digest").checked, hour: Math.max(0, Math.min(23, +$("#s-digest-hour").value || 21)) },
       home: { city: $("#s-home-city").value.trim(), nearby: lines($("#s-home-near").value), only_near: $("#s-home-only").checked },
       sources: {
@@ -509,6 +512,14 @@ $("#btn-run").onclick = async () => {
 // ---------- limits ----------
 const PT = "America/Los_Angeles";              // Gemini daily quotas reset at midnight Pacific time
 const CRON_UTC_HOURS = [...Array(24).keys()], CRON_MINS = [13, 33, 53]; // every 20 min — must match .github/workflows/finder.yml
+const LOCAL_TZ = "Europe/Kyiv";                    // night pause hours are local — must match LOCAL_TZ in main.py
+function isNight(t) {
+  const n = settings.night || {};
+  if (n.enabled === false) return false;
+  const h = +new Intl.DateTimeFormat("en-US", { timeZone: LOCAL_TZ, hour: "2-digit", hourCycle: "h23" }).format(t);
+  const a = n.from ?? 1, b = n.to ?? 6;
+  return a === b ? false : a < b ? h >= a && h < b : h >= a || h < b;
+}
 const ms = (ts) => ts?.toMillis ? ts.toMillis() : ts ? +new Date(ts) : 0;
 
 function tzOffsetMs(date, tz) {
@@ -529,7 +540,7 @@ function scheduledBetween(from, to) {
   for (; +d < +to; d.setUTCDate(d.getUTCDate() + 1))
     for (const h of CRON_UTC_HOURS) for (const mi of CRON_MINS) {
       const t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h, mi);
-      if (t > +from && t < +to) n++;
+      if (t > +from && t < +to && !isNight(new Date(t))) n++;
     }
   return n;
 }
@@ -614,7 +625,7 @@ function nextScheduled(now = new Date()) {
   for (let d = 0; d < 3; d++)
     for (const h of CRON_UTC_HOURS) for (const mi of CRON_MINS) {
       const t = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + d, h, mi));
-      if (t > now) return t;
+      if (t > now && !isNight(t)) return t;
     }
   return null;
 }

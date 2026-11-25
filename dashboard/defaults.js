@@ -21,6 +21,11 @@ export const DEFAULTS = {
     "nearby": [],
     "only_near": false
   },
+  "night": {
+    "enabled": true,
+    "from": 1,
+    "to": 6
+  },
   "digest": {
     "enabled": true,
     "hour": 21

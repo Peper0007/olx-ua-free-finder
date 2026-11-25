@@ -109,6 +109,9 @@
           <div class="card">
             <h3>Бот</h3>
             <label class="switch"><input id="s-paused" type="checkbox"> Пауза (расписание не запускается)</label>
+            <label class="switch"><input id="s-night" type="checkbox"> Ночью не проверять</label>
+            <label>Ночь с … до … (час по Киеву) <span class="row"><input id="s-night-from" type="number" min="0" max="23"> <input id="s-night-to" type="number" min="0" max="23"></span>
+              <span class="hint">Запуски по расписанию в эти часы пропускаются: новых объявлений ночью почти нет, а запросов к сайтам меньше. Лимит Gemini делится только на дневные запуски. Ручной запуск работает всегда.</span></label>
             <label class="switch"><input id="s-telegram" type="checkbox"> Отправлять находки в Telegram</label>
             <label>Порог оценки для Telegram: <b id="s-min-val"></b>
               <input id="s-min" type="range" min="0" max="10">
@@ -242,6 +245,6 @@
     </main>
   </div>
 
-  <script type="module" src="app.js?v=23"></script>
+  <script type="module" src="app.js?v=24"></script>
 </body>
 </html>
