@@ -330,7 +330,9 @@ def run(dry_run: bool) -> int:
                     is_hit = score >= min_score
                     # cheap paid ads (antiques etc.) score high often: only the best go to Telegram;
                     # «охота» words always go, whatever the score
-                    notify = bool(hunt) or (is_hit and (not ad.price or score >= int(settings.get("paid_min_score", 8))))
+                    # «free» ads that name a price in the description count as paid
+                    paid = bool(ad.price) or bool(str(verdict.get("hidden_price") or "").strip())
+                    notify = bool(hunt) or (is_hit and (not paid or score >= int(settings.get("paid_min_score", 8))))
                     if notify and not dry_run and remote.already_sent(ad):
                         log.info("Already sent to Telegram earlier, not repeating: %s", ad.url)
                         notify = False
