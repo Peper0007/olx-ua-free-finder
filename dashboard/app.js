@@ -289,6 +289,7 @@ function cardHTML(f) {
       <div class="body">
         ${f.status in FOLDERS ? `<p class="folder-badge ${f.status}">${f.auto_gone && f.status === "gone" ? "🏃 Объявление снято с сайта (проверил бот)" : FOLDERS[f.status].badge}${f.status_at ? " · " + fmtDate(f.status_at) : ""}</p>` : ""}
         ${f.price_eur > 0 ? `<p class="paid">💶 Платное: <b>${esc(f.price_uah ?? f.price_eur)} грн</b></p>` : ""}
+        ${f.hidden_price && !(f.price_eur > 0) ? `<p class="paid">⚠️ Не бесплатно: в описании цена <b>${esc(f.hidden_price)}</b></p>` : ""}
         ${f.lot?.length ? `<details class="lot"><summary>📦 Лот: ${f.lot.length} объявлений одного продавца</summary>${f.lot.map((m) =>
           `<a href="${esc(m.url)}" target="_blank" rel="noopener">${esc(m.title)}</a>${m.price ? ` — ${esc(m.price)} грн` : ""}`).join("<br>")}</details>` : ""}
         ${f.hunt ? `<p class="hunt">🎯 Охота: «${esc(f.hunt)}»</p>` : ""}
