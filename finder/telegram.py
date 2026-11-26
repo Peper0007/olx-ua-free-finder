@@ -66,7 +66,10 @@ def format_ad(ad: Ad, verdict: dict | None) -> str:
     lines = [f"<b>{e(ad.title)}</b>"]
     if verdict and verdict.get("hunt"):
         lines.insert(0, f"🎯 <b>Охота: «{e(str(verdict['hunt']))}»</b>")
-    if not ad.price:
+    hidden = str((verdict or {}).get("hidden_price") or "").strip()
+    if hidden and not ad.price:
+        lines.append(f"⚠️ <b>Не бесплатно:</b> в описании цена <b>{e(hidden)}</b>")
+    if not ad.price and not hidden:
         # Telegram can't colour text, so free finds get a bright banner on top to stand out from paid ones
         lines.insert(0, "🟩🟩🟩 <b>🆓 БЕСПЛАТНО</b> 🟩🟩🟩")
     if ad.price:

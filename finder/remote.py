@@ -322,6 +322,7 @@ def save_find(ad: Ad, verdict: dict, sent: bool, run_id: str | None) -> None:
                 "price_eur": round(float(ad.price or 0) / UAH_PER_EUR, 2),
                 "fingerprint": fingerprint(ad),
                 "pickup": str(verdict.get("pickup", ""))[:100],
+                "hidden_price": str(verdict.get("hidden_price") or "")[:40],
                 "hunt": str(verdict.get("hunt", ""))[:60],
                 "tg_ref": _tg_ref(doc_id),
                 "lot": [{"title": m.title[:120], "url": m.url, "price": float(m.price or 0)} for m in ad.members[:30]],
